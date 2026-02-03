@@ -27,9 +27,7 @@ class ExtractionResult:
 
 SUPPORTED_EXTENSIONS = {
     ".docx",
-    ".doc",
     ".pptx",
-    ".ppt",
     ".xlsx",
     ".xls",
     ".rtf",
@@ -319,11 +317,11 @@ def _extract_file(path: Path, temp_dir: Path) -> str:
     if suffix == ".docx":
         return _extract_docx(path)
     if suffix == ".doc":
-        return _extract_doc_legacy(path)
+        raise ValueError("Legacy .doc files are not supported in this build")
     if suffix == ".pptx":
         return _extract_pptx(path)
     if suffix == ".ppt":
-        return _extract_doc_legacy(path)
+        raise ValueError("Legacy .ppt files are not supported in this build")
     if suffix == ".xlsx":
         return _extract_xlsx(path)
     if suffix == ".xls":
