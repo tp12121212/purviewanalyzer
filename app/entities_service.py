@@ -64,7 +64,7 @@ def list_entities(
         patterns_count = pattern_counts.get(item.id, 0)
         context_count = context_counts.get(item.id, 0)
         metadata_count = metadata_counts.get(item.id, 0)
-        if patterns_count == 0 and context_count == 0 and metadata_count == 0:
+        if patterns_count == 0 and context_count == 0:
             continue
         results.append(
             {
