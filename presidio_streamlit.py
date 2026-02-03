@@ -16,6 +16,7 @@ from app.config import auto_import_enabled, get_predefined_recognizers_path
 from app.db import SessionLocal, init_db
 from app.docs_renderer import DOCS_ROOT, render_docs_page
 from app.entities_service import get_entity_detail, list_entities
+from app.github_browser import render_repo_browser
 from app.import_entities import load_entity_specs, upsert_entities
 from app.models import Entity
 from openai_fake_data_generator import OpenAIParams
@@ -280,6 +281,9 @@ if page in DOCS_PAGES:
     if doc_param and _doc_belongs_to_page(doc_param, page):
         doc_path = _resolve_doc_path(doc_param)
     doc_path = doc_path or DOCS_PAGES[page]
+    if page == "Code":
+        render_repo_browser("tp12121212", "purviewanalyzer", ref="main")
+        st.stop()
     render_docs_page(page, doc_path, DOCS_ROOT)
     st.stop()
 
