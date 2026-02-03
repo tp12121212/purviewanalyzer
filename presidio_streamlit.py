@@ -17,6 +17,7 @@ from app.db import SessionLocal, init_db
 from app.docs_renderer import DOCS_ROOT, render_docs_page
 from app.entities_service import get_entity_detail, list_entities
 from app.github_browser import render_repo_browser
+from app.file_extract import SUPPORTED_EXTENSIONS, extract_text_from_uploads
 from app.import_entities import load_entity_specs, upsert_entities
 from app.models import Entity
 from openai_fake_data_generator import OpenAIParams
@@ -491,6 +492,28 @@ col1, col2 = st.columns(2)
 
 # Before:
 col1.subheader("Input")
+uploaded_files = col1.file_uploader(
+    "Upload files",
+    type=[ext.lstrip(".") for ext in sorted(SUPPORTED_EXTENSIONS)],
+    accept_multiple_files=True,
+)
+if uploaded_files:
+    file_signature = tuple((f.name, f.size) for f in uploaded_files)
+    if st.session_state.get("last_upload_signature") != file_signature:
+        with col1.spinner("Extracting text from uploaded files..."):
+            extracted_text, reports = extract_text_from_uploads(uploaded_files)
+        st.session_state["last_upload_signature"] = file_signature
+        st.session_state["text_input"] = extracted_text
+        st.session_state["upload_reports"] = reports
+
+    if st.session_state.get("upload_reports"):
+        with col1.expander("Extraction status", expanded=False):
+            for report in st.session_state["upload_reports"]:
+                if report.ok:
+                    st.success(f\"{report.filename}: {report.message}\")
+                else:
+                    st.error(f\"{report.filename}: {report.message}\")
+
 st_text = col1.text_area(
     label="Enter text", value="".join(demo_text), height=400, key="text_input"
 )
