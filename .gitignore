@@ -12,6 +12,7 @@ data
 testttttt
 *.sqlite
 .DS_Store
+dddddddd
 .streamlit/secrets.toml
 .streamlit/credentials.toml
 .pytest_cache/
