@@ -1,4 +1,4 @@
-"""Streamlit app for Data Analyser."""
+"""Streamlit app for Purview Analyser."""
 import logging
 import os
 import traceback
@@ -29,7 +29,7 @@ from presidio_helpers import (
 )
 
 st.set_page_config(
-    page_title="Data Analyser App",
+    page_title="Purview Analyser",
     layout="wide",
     initial_sidebar_state="expanded",
     menu_items={
@@ -173,26 +173,45 @@ def render_entities() -> None:
 
 
 MENU_ITEMS = ["App", "Entities", "Code", "Tutorial", "Installation", "FAQ"]
+
+
+def _doc_entry(path: Path) -> Path:
+    if path.exists():
+        return path
+    if path.suffix:
+        index_candidate = path.with_suffix("") / "index.md"
+    else:
+        index_candidate = path / "index.md"
+    return index_candidate if index_candidate.exists() else path
+
+
 DOCS_PAGES = {
-    "Code": DOCS_ROOT / "code.md",
-    "Tutorial": DOCS_ROOT / "tutorial.md",
-    "Installation": DOCS_ROOT / "installation.md",
-    "FAQ": DOCS_ROOT / "faq.md",
+    "Code": _doc_entry(DOCS_ROOT / "code.md"),
+    "Tutorial": _doc_entry(DOCS_ROOT / "tutorial.md"),
+    "Installation": _doc_entry(DOCS_ROOT / "installation.md"),
+    "FAQ": _doc_entry(DOCS_ROOT / "faq.md"),
 }
-DOCS_BY_REL = {path.relative_to(DOCS_ROOT).as_posix(): name for name, path in DOCS_PAGES.items()}
+DOCS_BY_REL = {
+    path.relative_to(DOCS_ROOT).as_posix(): name for name, path in DOCS_PAGES.items()
+}
 
 
 def _get_query_param(name: str) -> str | None:
     params = st.query_params
-    values = params.get(name, [])
-    return values[0] if values else None
+    value = params.get(name)
+    if value is None:
+        return None
+    if isinstance(value, list):
+        return value[0] if value else None
+    return value
 
 
 def _set_query_params(page: str, doc: str | None = None) -> None:
-    params = {"page": page}
+    st.query_params["page"] = page
     if doc:
-        params["doc"] = doc
-    st.query_params.update(params)
+        st.query_params["doc"] = doc
+    else:
+        st.query_params.pop("doc", None)
 
 
 def _resolve_doc_path(doc_param: str | None) -> Path | None:
@@ -206,11 +225,33 @@ def _resolve_doc_path(doc_param: str | None) -> Path | None:
     return doc_path if doc_path.exists() else None
 
 
+def _doc_belongs_to_page(doc_param: str, page: str) -> bool:
+    if page == "Tutorial":
+        return doc_param == "tutorial.md" or doc_param.startswith("tutorial/")
+    if page == "Installation":
+        return doc_param == "installation.md" or doc_param.startswith("installation/")
+    if page == "FAQ":
+        return doc_param == "faq.md" or doc_param.startswith("faq/")
+    if page == "Code":
+        return doc_param == "code.md" or doc_param.startswith("code/")
+    return False
+
+
 page_param = _get_query_param("page")
 doc_param = _get_query_param("doc")
 page = page_param if page_param in MENU_ITEMS else None
-if not page and doc_param in DOCS_BY_REL:
-    page = DOCS_BY_REL[doc_param]
+if not page and doc_param:
+    rel = doc_param
+    if rel in DOCS_BY_REL:
+        page = DOCS_BY_REL[rel]
+    elif rel.startswith("tutorial/") or rel.startswith("tutorial"):
+        page = "Tutorial"
+    elif rel.startswith("installation"):
+        page = "Installation"
+    elif rel.startswith("faq"):
+        page = "FAQ"
+    elif rel.startswith("code"):
+        page = "Code"
 if not page:
     page = st.session_state.get("page", "App")
     if page not in MENU_ITEMS:
@@ -235,14 +276,17 @@ if page == "Entities":
     render_entities()
     st.stop()
 if page in DOCS_PAGES:
-    doc_path = _resolve_doc_path(doc_param) or DOCS_PAGES[page]
+    doc_path = None
+    if doc_param and _doc_belongs_to_page(doc_param, page):
+        doc_path = _resolve_doc_path(doc_param)
+    doc_path = doc_path or DOCS_PAGES[page]
     render_docs_page(page, doc_path, DOCS_ROOT)
     st.stop()
 
 
 model_help_text = """
     Select which Named Entity Recognition (NER) model to use for PII detection, in parallel to rule-based recognizers.
-    Data Analyser supports multiple NER packages off-the-shelf, such as spaCy, Huggingface, Stanza and Flair,
+    Purview Analyser supports multiple NER packages off-the-shelf, such as spaCy, Huggingface, Stanza and Flair,
     as well as service such as Azure Text Analytics PII.
     """
 st_ta_key = st_ta_endpoint = ""
@@ -430,7 +474,7 @@ with st_deny_allow_expander:
     )
 # Main panel
 
-analyzer_load_state = st.info("Starting Data Analyser engine...")
+analyzer_load_state = st.info("Starting Purview Analyser engine...")
 
 analyzer_load_state.empty()
 
@@ -460,7 +504,7 @@ try:
     )
 
     # Before
-    analyzer_load_state = st.info("Starting Data Analyser engine...")
+    analyzer_load_state = st.info("Starting Purview Analyser engine...")
     analyzer = analyzer_engine(*analyzer_params)
     analyzer_load_state.empty()
 
