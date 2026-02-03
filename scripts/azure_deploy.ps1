@@ -8,7 +8,8 @@ param(
   [string]$GitHubBranch = "main",
   [string]$AcrName = "kcpurviewacr",
   [string]$ContainerAppEnv = "kc-purview-analyser-env",
-  [string]$ContainerAppName = "kc-purview-analyser-app"
+  [string]$ContainerAppName = "kc-purview-analyser-app",
+  [string]$AppDomain = "purview.killercloud.com.au"
 )
 
 $ErrorActionPreference = "Stop"
@@ -38,18 +39,22 @@ if (-not $env) {
 Write-Host "Creating Container App (if missing)..."
 $app = az containerapp show --name $ContainerAppName --resource-group $ResourceGroup 2>$null
 if (-not $app) {
-  az containerapp create \
-    --name $ContainerAppName \
-    --resource-group $ResourceGroup \
-    --environment $ContainerAppEnv \
-    --image "$acrLoginServer/$GitHubRepo:bootstrap" \
-    --target-port 8501 \
-    --ingress external \
-    --min-replicas 0 \
-    --max-replicas 1 \
-    --cpu 0.5 \
+  $bootstrapImage = "mcr.microsoft.com/azuredocs/containerapps-helloworld:latest"
+  az containerapp create `
+    --name $ContainerAppName `
+    --resource-group $ResourceGroup `
+    --environment $ContainerAppEnv `
+    --image $bootstrapImage `
+    --target-port 8501 `
+    --ingress external `
+    --min-replicas 0 `
+    --max-replicas 1 `
+    --cpu 0.5 `
     --memory 1Gi | Out-Null
 }
+
+Write-Host "Fetching Container App FQDN..."
+$appFqdn = az containerapp show --name $ContainerAppName --resource-group $ResourceGroup --query properties.configuration.ingress.fqdn -o tsv
 
 Write-Host "Creating App Registration for GitHub OIDC..."
 $appName = "$GitHubRepo-gha-oidc"
@@ -92,5 +97,9 @@ Write-Host "AZURE_CONTAINERAPP_NAME=$ContainerAppName"
 Write-Host "AZURE_CONTAINERAPP_ENV=$ContainerAppEnv"
 Write-Host "AZURE_ACR_NAME=$AcrName"
 Write-Host "AZURE_ACR_LOGIN_SERVER=$acrLoginServer"
-Write-Host "\n=== DNS (optional for ACR custom domain) ==="
+Write-Host "\n=== DNS (Container App custom domain) ==="
+Write-Host "Create CNAME: $AppDomain -> $appFqdn"
+Write-Host "After DNS propagates, bind the domain with a certificate:"
+Write-Host "az containerapp hostname add --resource-group $ResourceGroup --name $ContainerAppName --hostname $AppDomain --certificate <CERT_NAME>"
+Write-Host "\n=== DNS (optional for ACR custom domain; Premium only) ==="
 Write-Host "Create CNAME: acr.killercloud.com.au -> $acrLoginServer"
