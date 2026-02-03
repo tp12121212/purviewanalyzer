@@ -9,6 +9,7 @@ data
 *.db
 *.sqlite
 *.sqlite3
+testttttt
 *.sqlite
 .DS_Store
 .streamlit/secrets.toml
