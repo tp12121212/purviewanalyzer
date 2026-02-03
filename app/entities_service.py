@@ -48,9 +48,24 @@ def list_entities(
             select(EntityPattern.entity_id, func.count()).group_by(EntityPattern.entity_id)
         ).all()
     )
+    context_counts = dict(
+        session.execute(
+            select(EntityContext.entity_id, func.count()).group_by(EntityContext.entity_id)
+        ).all()
+    )
+    metadata_counts = dict(
+        session.execute(
+            select(EntityMetadata.entity_id, func.count()).group_by(EntityMetadata.entity_id)
+        ).all()
+    )
 
     results = []
     for item in items:
+        patterns_count = pattern_counts.get(item.id, 0)
+        context_count = context_counts.get(item.id, 0)
+        metadata_count = metadata_counts.get(item.id, 0)
+        if patterns_count == 0 and context_count == 0 and metadata_count == 0:
+            continue
         results.append(
             {
                 "id": item.id,
@@ -60,7 +75,9 @@ def list_entities(
                 "recognizer_type": item.recognizer_type,
                 "enabled": item.enabled,
                 "updated_at": item.updated_at,
-                "patterns_count": pattern_counts.get(item.id, 0),
+                "patterns_count": patterns_count,
+                "context_count": context_count,
+                "metadata_count": metadata_count,
             }
         )
 
