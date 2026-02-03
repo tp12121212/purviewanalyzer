@@ -12,6 +12,7 @@ data
 testttttt
 *.sqlite
 .DS_Store
+uuuuuuuu
 dddddddd
 .streamlit/secrets.toml
 .streamlit/credentials.toml
