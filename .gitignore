@@ -8,6 +8,7 @@ data/
 *.db
 *.sqlite
 *.sqlite3
+*.sqlite
 .DS_Store
 .streamlit/secrets.toml
 .streamlit/credentials.toml
