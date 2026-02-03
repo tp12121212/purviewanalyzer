@@ -183,7 +183,7 @@ DOCS_BY_REL = {path.relative_to(DOCS_ROOT).as_posix(): name for name, path in DO
 
 
 def _get_query_param(name: str) -> str | None:
-    params = st.experimental_get_query_params()
+    params = st.query_params
     values = params.get(name, [])
     return values[0] if values else None
 
@@ -192,7 +192,7 @@ def _set_query_params(page: str, doc: str | None = None) -> None:
     params = {"page": page}
     if doc:
         params["doc"] = doc
-    st.experimental_set_query_params(**params)
+    st.query_params.update(params)
 
 
 def _resolve_doc_path(doc_param: str | None) -> Path | None:
@@ -539,15 +539,3 @@ except Exception as e:
     print(e)
     traceback.print_exc()
     st.error(e)
-
-components.html(
-    """
-    <script type="text/javascript">
-    (function(c,l,a,r,i,t,y){
-        c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
-        t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
-        y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
-    })(window, document, "clarity", "script", "h7f8bp42n8");
-    </script>
-    """
-)

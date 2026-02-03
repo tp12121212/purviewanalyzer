@@ -46,6 +46,7 @@ streamlit run presidio_streamlit.py
 ## Local docs pages
 
 The app renders local documentation pages from `content/docs/` (Code, Tutorial, Installation, FAQ).
+Admonitions using `!!! note` and `!!! warning` are supported and rendered as styled callouts.
 
 ### Sync docs content
 
