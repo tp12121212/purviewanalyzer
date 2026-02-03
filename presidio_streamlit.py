@@ -510,9 +510,9 @@ if uploaded_files:
         with col1.expander("Extraction status", expanded=False):
             for report in st.session_state["upload_reports"]:
                 if report.ok:
-                    st.success(f\"{report.filename}: {report.message}\")
+                    st.success(f"{report.filename}: {report.message}")
                 else:
-                    st.error(f\"{report.filename}: {report.message}\")
+                    st.error(f"{report.filename}: {report.message}")
 
 st_text = col1.text_area(
     label="Enter text", value="".join(demo_text), height=400, key="text_input"
