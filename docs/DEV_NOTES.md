@@ -13,3 +13,4 @@
 Notes:
 - Large archives are capped at ~200MB total extracted size and 2000 files.
 - Some legacy formats require optional system dependencies (e.g., textract helpers).
+- Optional OCR engine: set `USE_EASYOCR=1` to use EasyOCR instead of Tesseract.

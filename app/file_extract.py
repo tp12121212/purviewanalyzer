@@ -10,12 +10,14 @@ from pathlib import Path
 from typing import Iterable, List, Tuple
 
 import pytesseract
-from PIL import Image
+from PIL import Image, ImageFilter, ImageOps
 from pypdf import PdfReader
 import fitz  # pymupdf
 
 from email import policy
 from email.parser import BytesParser
+
+_OCR_CACHE: dict = {}
 
 
 @dataclass
@@ -116,8 +118,75 @@ def _extract_rar(archive_path: Path, dest: Path, max_files: int, max_bytes: int)
                 shutil.copyfileobj(src, out)
 
 
+def _prep_variants(image: Image.Image) -> list[Image.Image]:
+    gray = ImageOps.grayscale(image)
+    scale = 2
+    gray = gray.resize((gray.width * scale, gray.height * scale), Image.Resampling.LANCZOS)
+    gray = gray.filter(ImageFilter.MedianFilter(size=3))
+    auto = ImageOps.autocontrast(gray)
+    bw_160 = auto.point(lambda x: 0 if x < 160 else 255, mode="1")
+    bw_190 = auto.point(lambda x: 0 if x < 190 else 255, mode="1")
+    return [gray, auto, bw_160, bw_190]
+
+
+def _text_quality(text: str) -> float:
+    if not text:
+        return 0.0
+    stripped = text.strip()
+    if not stripped:
+        return 0.0
+    letters = sum(ch.isalpha() for ch in stripped)
+    digits = sum(ch.isdigit() for ch in stripped)
+    spaces = sum(ch.isspace() for ch in stripped)
+    total = len(stripped)
+    return (letters + digits) / max(total - spaces, 1)
+
+
 def _ocr_image(image: Image.Image) -> str:
-    return pytesseract.image_to_string(image)
+    if os.getenv("USE_EASYOCR", "0").lower() in {"1", "true", "yes", "on"}:
+        try:
+            import easyocr
+            import numpy as np
+
+            if "_easyocr_reader" not in _OCR_CACHE:
+                _OCR_CACHE["_easyocr_reader"] = easyocr.Reader(["en"], gpu=False)
+            reader = _OCR_CACHE["_easyocr_reader"]
+            arr = np.array(image.convert("RGB"))
+            results = reader.readtext(arr, detail=0, paragraph=True)
+            return "\n".join([r for r in results if r]).strip()
+        except Exception:
+            pass
+
+    lang = os.getenv("OCR_LANG", "eng")
+    configs = [
+        os.getenv("OCR_CONFIG", "--oem 1 --psm 6"),
+        "--oem 1 --psm 4",
+    ]
+    best_text = ""
+    best_quality = 0.0
+    for variant in _prep_variants(image):
+        for cfg in configs:
+            text = pytesseract.image_to_string(variant, lang=lang, config=cfg)
+            quality = _text_quality(text)
+            if quality > best_quality:
+                best_quality = quality
+                best_text = text
+
+    # MRZ pass (bottom 35%) using OCRB if available
+    mrz_text = ""
+    try:
+        ocrb_config = os.getenv(
+            "OCR_MRZ_CONFIG",
+            "--oem 1 --psm 6 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<",
+        )
+        mrz_lang = os.getenv("OCR_MRZ_LANG", "ocrb")
+        bottom = image.crop((0, int(image.height * 0.65), image.width, image.height))
+        mrz_variant = _prep_variants(bottom)[2]
+        mrz_text = pytesseract.image_to_string(mrz_variant, lang=mrz_lang, config=ocrb_config)
+    except Exception:
+        pass
+
+    return "\n".join([t for t in [best_text.strip(), mrz_text.strip()] if t]).strip()
 
 
 def _extract_pdf(path: Path) -> str:
@@ -133,11 +202,30 @@ def _extract_pdf(path: Path) -> str:
     if has_text and combined:
         return combined
 
-    # OCR fallback for scanned PDFs
+    # OCR fallback for scanned PDFs (try PyMuPDF OCR text first)
     doc = fitz.open(str(path))
+    ocr_text_parts: List[str] = []
+    for page in doc:
+        try:
+            textpage = page.get_textpage_ocr(language=os.getenv("OCR_LANG", "eng"))
+            page_text = textpage.extractText().strip()
+            if page_text and _text_quality(page_text) > 0.5:
+                ocr_text_parts.append(page_text)
+                continue
+        except Exception:
+            pass
+
+        pix = page.get_pixmap(dpi=300)
+        img = Image.open(io.BytesIO(pix.tobytes("png")))
+        ocr_text_parts.append(_ocr_image(img))
+
+    if ocr_text_parts:
+        return "\n".join([p for p in ocr_text_parts if p]).strip()
+
+    # OCR fallback for scanned PDFs
     ocr_parts: List[str] = []
     for page in doc:
-        pix = page.get_pixmap(dpi=200)
+        pix = page.get_pixmap(dpi=300)
         img = Image.open(io.BytesIO(pix.tobytes("png")))
         ocr_parts.append(_ocr_image(img))
     return "\n".join(ocr_parts).strip()
