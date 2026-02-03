@@ -26,3 +26,7 @@ logs/
 *.crt
 *.cer
 *.der
+.envrc
+*.secrets.json
+*.env.local
+*.env.production
