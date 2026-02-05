@@ -21,7 +21,6 @@ dddd
 .mypy_cache/
 .ruff_cache/
 .coverage
-jend
 .coverage.*
 htmlcov/
 logs/
