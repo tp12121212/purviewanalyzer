@@ -3,18 +3,20 @@ from typing import List, Optional, Tuple
 from presidio_analyzer import EntityRecognizer, Pattern, PatternRecognizer
 
 
-class AuAbnRecognizer(PatternRecognizer):
+class AuWestpacBsbRecognizer(PatternRecognizer):
     """
-    Recognizes Australian Business Number ("ABN").
+    Recognizes Westpac Bank-State-Branch ("BSB") number.
 
-    The Australian Business Number (ABN) is a unique 11
-    digit identifier issued to all entities registered in
-    the Australian Business Register (ABR).
-    The 11 digit ABN is structured as a 9 digit identifier
-    with two leading check digits.
-    The leading check digits are derived using a modulus 89 calculation.
-    This recognizer identifies ABN using regex, context words and checksum.
-    Reference: https://abr.business.gov.au/Help/AbnFormat
+    In Australia, a BSB (Bank-State-Branch) is a 6 digit code which identifies a
+    financial institution and branch, detected formats XXX-XXX, XX XXXX, XXXXXX, XXX XXX.
+
+    Westpac BSBs commonly use a bank identifier prefix of "03" or "73" (e.g. 03x-xxx),
+    with the remaining digits allocated to branches in line with AusPayNet BSB
+    guidelines.
+
+    This recognizer identifies Westpac BSB using regex and context words.
+    Reference (official lookup): https://bsb.auspaynet.com.au/
+    Reference (BSB system overview / downloads): https://auspaynet.com.au/BSBLinks
 
     :param patterns: List of patterns to be used by this recognizer
     :param context: List of context words to increase confidence in detection
@@ -27,20 +29,17 @@ class AuAbnRecognizer(PatternRecognizer):
 
     PATTERNS = [
         Pattern(
-            "ABN (Medium)",
-            r"\b\d{2}\s\d{3}\s\d{3}\s\d{3}\b",
+            "BSB Westpac (medium)",
+            r"\b(?:\d{2}[ -]?\d{4}|\d{3}[ -]?\d{3})\b",
             0.1,
-        ),
-        Pattern(
-            "ABN (Low)",
-            r"\b\d{11}\b",
-            0.01,
-        ),
+        )
     ]
 
     CONTEXT = [
-        "australian business number",
-        "abn",
+        "Statement",
+        "afsl",
+        "Westpac",
+        "233714",
     ]
 
     def __init__(
@@ -48,7 +47,7 @@ class AuAbnRecognizer(PatternRecognizer):
         patterns: Optional[List[Pattern]] = None,
         context: Optional[List[str]] = None,
         supported_language: str = "en",
-        supported_entity: str = "AU_ABN",
+        supported_entity: str = "BSB_Westpac",
         replacement_pairs: Optional[List[Tuple[str, str]]] = None,
         name: Optional[str] = None,
     ):
@@ -75,15 +74,6 @@ class AuAbnRecognizer(PatternRecognizer):
         """
         # Pre-processing before validation checks
         text = EntityRecognizer.sanitize_value(pattern_text, self.replacement_pairs)
-        abn_list = [int(digit) for digit in text if not digit.isspace()]
-
-        # Set weights based on digit position
-        weight = [10, 1, 3, 5, 7, 9, 11, 13, 15, 17, 19]
-
-        # Perform checksums
-        abn_list[0] = 9 if abn_list[0] == 0 else abn_list[0] - 1
-        sum_product = 0
-        for i in range(11):
-            sum_product += abn_list[i] * weight[i]
-        remainder = sum_product % 89
-        return remainder == 0
+        if not text.isdigit() or len(text) != 6:
+            return False
+        return text.startswith(("03", "73"))

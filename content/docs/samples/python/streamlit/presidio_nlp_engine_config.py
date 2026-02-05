@@ -2,6 +2,7 @@ import logging
 from typing import Tuple
 
 import spacy
+from app.recognizer_loader import load_country_specific_recognizers
 from presidio_analyzer import RecognizerRegistry
 from presidio_analyzer.nlp_engine import (
     NlpEngine,
@@ -44,6 +45,7 @@ def create_nlp_engine_with_spacy(
 
     registry = RecognizerRegistry()
     registry.load_predefined_recognizers(nlp_engine=nlp_engine)
+    load_country_specific_recognizers(registry)
 
     return nlp_engine, registry
 
@@ -79,6 +81,7 @@ def create_nlp_engine_with_stanza(
 
     registry = RecognizerRegistry()
     registry.load_predefined_recognizers(nlp_engine=nlp_engine)
+    load_country_specific_recognizers(registry)
 
     return nlp_engine, registry
 
@@ -147,6 +150,7 @@ def create_nlp_engine_with_transformers(
 
     registry = RecognizerRegistry()
     registry.load_predefined_recognizers(nlp_engine=nlp_engine)
+    load_country_specific_recognizers(registry)
 
     return nlp_engine, registry
 
@@ -164,6 +168,7 @@ def create_nlp_engine_with_flair(
 
     registry = RecognizerRegistry()
     registry.load_predefined_recognizers()
+    load_country_specific_recognizers(registry)
 
     # there is no official Flair NlpEngine, hence we load it as an additional recognizer
 
@@ -198,6 +203,7 @@ def create_nlp_engine_with_azure_ai_language(ta_key: str, ta_endpoint: str):
 
     registry = RecognizerRegistry()
     registry.load_predefined_recognizers()
+    load_country_specific_recognizers(registry)
 
     azure_ai_language_recognizer = AzureAIServiceWrapper(
         ta_endpoint=ta_endpoint, ta_key=ta_key
@@ -213,4 +219,3 @@ def create_nlp_engine_with_azure_ai_language(ta_key: str, ta_endpoint: str):
     registry.remove_recognizer("SpacyRecognizer")
 
     return nlp_engine, registry
-

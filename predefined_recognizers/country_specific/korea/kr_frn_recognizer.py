@@ -64,7 +64,7 @@ class KrFrnRecognizer(KrRrnRecognizer):
         replacement_pairs: Optional[List[Tuple[str, str]]] = None,
         name: Optional[str] = None,
     ):
-        super().__init__(
+        init_kwargs = dict(
             patterns=patterns if patterns else self.PATTERNS,
             context=context if context else self.CONTEXT,
             supported_language=supported_language,
@@ -72,6 +72,11 @@ class KrFrnRecognizer(KrRrnRecognizer):
             replacement_pairs=replacement_pairs,
             name=name,
         )
+        try:
+            super().__init__(**init_kwargs)
+        except TypeError:
+            init_kwargs.pop("name", None)
+            super().__init__(**init_kwargs)
 
     def _validate_checksum(self, frn: str) -> bool:
         """
