@@ -1,8 +1,12 @@
-name: Deploy Container App
+name: Deploy to Azure Container Apps
 
 on:
   push:
     branches: [ main ]
+
+permissions:
+  id-token: write
+  contents: read
 
 jobs:
   build-and-deploy:
@@ -25,13 +29,12 @@ jobs:
 
       - name: Build and Push Image
         run: |
-          IMAGE=${AZURE_ACR_LOGIN_SERVER}/${{ github.event.repository.name }}:${{ github.sha }}
+          IMAGE=${{ secrets.AZURE_ACR_LOGIN_SERVER }}/${{ github.event.repository.name }}:${{ github.sha }}
           docker build -t $IMAGE .
           docker push $IMAGE
-
       - name: Deploy to Container App
         run: |
-          IMAGE=${AZURE_ACR_LOGIN_SERVER}/${{ github.event.repository.name }}:${{ github.sha }}
+          IMAGE=${{ secrets.AZURE_ACR_LOGIN_SERVER }}/${{ github.event.repository.name }}:${{ github.sha }}
           az containerapp update \
             --name ${{ secrets.AZURE_CONTAINERAPP_NAME }} \
             --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
