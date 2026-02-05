@@ -194,9 +194,23 @@ def init_model_storage() -> ModelStoragePaths:
 def resolve_spacy_model_path(model_id: str) -> str:
     paths = get_storage_paths()
     candidate = paths.spacy_dir / model_id
-    if candidate.exists():
-        return str(candidate)
+    resolved = _find_spacy_model_dir(candidate)
+    if resolved is not None:
+        return str(resolved)
     return model_id
+
+
+def _find_spacy_model_dir(base_dir: Path) -> Path | None:
+    if not base_dir.exists() or not base_dir.is_dir():
+        return None
+    if (base_dir / "config.cfg").exists():
+        return base_dir
+
+    nested_candidates = sorted(base_dir.glob("*/config.cfg"))
+    if nested_candidates:
+        return nested_candidates[0].parent
+
+    return None
 
 
 def model_exists(model_id: str, kind: str) -> bool:
@@ -211,7 +225,7 @@ def model_exists(model_id: str, kind: str) -> bool:
 
     if kind == "spacy":
         candidate = paths.spacy_dir / model_id
-        if (candidate / "meta.json").exists() or (candidate / "config.cfg").exists():
+        if _find_spacy_model_dir(candidate) is not None:
             return True
         try:
             import spacy.util
@@ -305,7 +319,7 @@ def ensure_spacy_model(model_id: str) -> None:
 def _copy_spacy_model_to_persist(model_id: str) -> None:
     paths = get_storage_paths()
     target = paths.spacy_dir / model_id
-    if target.exists():
+    if _find_spacy_model_dir(target) is not None:
         return
     try:
         import spacy.util
@@ -315,8 +329,12 @@ def _copy_spacy_model_to_persist(model_id: str) -> None:
         logger.debug("Unable to resolve spaCy package path for %s: %s", model_id, exc)
         return
 
+    source = _find_spacy_model_dir(package_path) or package_path
+
     try:
-        shutil.copytree(package_path, target, dirs_exist_ok=True)
+        if target.exists():
+            shutil.rmtree(target)
+        shutil.copytree(source, target, dirs_exist_ok=True)
         logger.info("Copied spaCy model %s to %s", model_id, target)
     except Exception as exc:
         logger.warning("Failed to copy spaCy model %s to %s: %s", model_id, target, exc)
