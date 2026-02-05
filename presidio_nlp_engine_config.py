@@ -31,7 +31,7 @@ def _ensure_stanza_model(model_id: str) -> None:
         import stanza
 
         paths = get_storage_paths()
-        stanza.download(model_id, dir=str(paths.stanza_dir))
+        stanza.download(model_id, model_dir=str(paths.stanza_dir))
 
     ensure_model(model_id, "stanza", _download)
 
