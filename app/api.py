@@ -4,6 +4,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.db import get_session, init_db
+from app.model_storage import init_model_storage
 from app.entities_service import get_entity_detail, list_entities
 
 app = FastAPI(title="Presidio Entities API")
@@ -11,6 +12,7 @@ app = FastAPI(title="Presidio Entities API")
 
 @app.on_event("startup")
 def _startup() -> None:
+    init_model_storage()
     init_db()
 
 

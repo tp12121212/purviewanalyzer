@@ -18,6 +18,9 @@ This app can import Presidio predefined recognizers into a local SQLite database
 
 - `DATABASE_URL`: `sqlite:///./data/app.db`
 - `PREDEFINED_RECOGNIZERS_PATH`: `./predefined_recognizers`
+- `PURVIEW_PERSIST_ROOT`: `/mnt` (persistent volume mount for ML model caches)
+- `VERIFY_MNT_WRITABLE`: `1` (fail fast if persist root is not writable)
+- `PURVIEW_CLEAN_LEGACY_MODEL_DIRS`: `1` (remove legacy caches under `/root`)
 
 ### Import entities
 
@@ -41,6 +44,18 @@ uvicorn app.api:app --reload
 
 ```
 streamlit run presidio_streamlit.py
+```
+
+## Persistent model storage
+
+This app expects a writable SMB volume mounted at `/mnt` when running in Azure Container Apps.
+Mount your Azure Files/SMB volume to `/mnt` so model caches persist across restarts.
+Model downloads and caches (spaCy, Hugging Face, Flair, Stanza, Torch, XDG caches) are redirected to subfolders under `/mnt`.
+
+### Verify storage mount
+
+```
+python -m purviewanalyzer.verify_storage
 ```
 
 ## Local docs pages

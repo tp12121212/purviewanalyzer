@@ -21,14 +21,7 @@ from app.file_extract import SUPPORTED_EXTENSIONS, extract_text_from_uploads
 from app.import_entities import load_entity_specs, upsert_entities
 from app.models import Entity
 from openai_fake_data_generator import OpenAIParams
-from presidio_helpers import (
-    get_supported_entities,
-    analyze,
-    anonymize,
-    annotate,
-    create_fake_data,
-    analyzer_engine,
-)
+from app.model_storage import init_model_storage
 
 st.set_page_config(
     page_title="Purview Analyser",
@@ -41,6 +34,17 @@ st.set_page_config(
 
 dotenv.load_dotenv()
 logger = logging.getLogger("presidio-streamlit")
+
+init_model_storage()
+
+from presidio_helpers import (  # noqa: E402
+    get_supported_entities,
+    analyze,
+    anonymize,
+    annotate,
+    create_fake_data,
+    analyzer_engine,
+)
 
 
 allow_other_models = os.getenv("ALLOW_OTHER_MODELS", "0").lower() in {

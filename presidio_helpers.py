@@ -15,6 +15,7 @@ from presidio_analyzer.nlp_engine import NlpEngine
 from presidio_anonymizer import AnonymizerEngine
 from presidio_anonymizer.entities import OperatorConfig
 
+from app.model_storage import init_model_storage
 from openai_fake_data_generator import (
     call_completion_model,
     OpenAIParams,
@@ -29,6 +30,7 @@ from presidio_nlp_engine_config import (
 )
 
 logger = logging.getLogger("presidio-streamlit")
+init_model_storage()
 
 
 @st.cache_resource

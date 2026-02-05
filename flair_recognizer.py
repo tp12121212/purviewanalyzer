@@ -13,6 +13,8 @@ from presidio_analyzer.nlp_engine import NlpArtifacts
 from flair.data import Sentence
 from flair.models import SequenceTagger
 
+from app.model_storage import ensure_and_load_model
+
 
 logger = logging.getLogger("presidio-analyzer")
 
@@ -88,11 +90,14 @@ class FlairRecognizer(EntityRecognizer):
             self.model = model
         elif not model and model_path:
             print(f"Loading model from {model_path}")
-            self.model = SequenceTagger.load(model_path)
+            self.model = ensure_and_load_model(
+                model_path, "flair", SequenceTagger.load, model_path
+            )
         else:
             print(f"Loading model for language {supported_language}")
-            self.model = SequenceTagger.load(
-                self.MODEL_LANGUAGES.get(supported_language)
+            resolved = self.MODEL_LANGUAGES.get(supported_language)
+            self.model = ensure_and_load_model(
+                resolved, "flair", SequenceTagger.load, resolved
             )
 
         super().__init__(

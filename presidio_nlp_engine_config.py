@@ -1,7 +1,12 @@
 import logging
 from typing import Tuple
 
-import spacy
+from app.model_storage import (
+    ensure_model,
+    ensure_spacy_model,
+    get_storage_paths,
+    resolve_spacy_model_path,
+)
 from presidio_analyzer import RecognizerRegistry
 from presidio_analyzer.nlp_engine import (
     NlpEngine,
@@ -11,6 +16,26 @@ from presidio_analyzer.nlp_engine import (
 logger = logging.getLogger("presidio-streamlit")
 
 
+def _ensure_huggingface_model(model_id: str) -> None:
+    def _download() -> None:
+        from huggingface_hub import snapshot_download
+
+        paths = get_storage_paths()
+        snapshot_download(repo_id=model_id, cache_dir=str(paths.hf_dir))
+
+    ensure_model(model_id, "huggingface", _download)
+
+
+def _ensure_stanza_model(model_id: str) -> None:
+    def _download() -> None:
+        import stanza
+
+        paths = get_storage_paths()
+        stanza.download(model_id, dir=str(paths.stanza_dir))
+
+    ensure_model(model_id, "stanza", _download)
+
+
 def create_nlp_engine_with_spacy(
     model_path: str,
 ) -> Tuple[NlpEngine, RecognizerRegistry]:
@@ -18,9 +43,12 @@ def create_nlp_engine_with_spacy(
     Instantiate an NlpEngine with a spaCy model
     :param model_path: path to model / model name.
     """
+    ensure_spacy_model(model_path)
+    resolved_model = resolve_spacy_model_path(model_path)
+
     nlp_configuration = {
         "nlp_engine_name": "spacy",
-        "models": [{"lang_code": "en", "model_name": model_path}],
+        "models": [{"lang_code": "en", "model_name": resolved_model}],
         "ner_model_configuration": {
             "model_to_presidio_entity_mapping": {
                 "PER": "PERSON",
@@ -55,6 +83,8 @@ def create_nlp_engine_with_stanza(
     Instantiate an NlpEngine with a stanza model
     :param model_path: path to model / model name.
     """
+    _ensure_stanza_model(model_path)
+
     nlp_configuration = {
         "nlp_engine_name": "stanza",
         "models": [{"lang_code": "en", "model_name": model_path}],
@@ -93,13 +123,19 @@ def create_nlp_engine_with_transformers(
     :param model_path: HuggingFace model path.
     """
     print(f"Loading Transformers model: {model_path} of type {type(model_path)}")
+    ensure_spacy_model("en_core_web_sm")
+    resolved_spacy = resolve_spacy_model_path("en_core_web_sm")
+    _ensure_huggingface_model(model_path)
 
     nlp_configuration = {
         "nlp_engine_name": "transformers",
         "models": [
             {
                 "lang_code": "en",
-                "model_name": {"spacy": "en_core_web_sm", "transformers": model_path},
+                "model_name": {
+                    "spacy": resolved_spacy,
+                    "transformers": model_path,
+                },
             }
         ],
         "ner_model_configuration": {
@@ -167,13 +203,13 @@ def create_nlp_engine_with_flair(
 
     # there is no official Flair NlpEngine, hence we load it as an additional recognizer
 
-    if not spacy.util.is_package("en_core_web_sm"):
-        spacy.cli.download("en_core_web_sm")
+    ensure_spacy_model("en_core_web_sm")
     # Using a small spaCy model + a Flair NER model
     flair_recognizer = FlairRecognizer(model_path=model_path)
+    resolved_spacy = resolve_spacy_model_path("en_core_web_sm")
     nlp_configuration = {
         "nlp_engine_name": "spacy",
-        "models": [{"lang_code": "en", "model_name": "en_core_web_sm"}],
+        "models": [{"lang_code": "en", "model_name": resolved_spacy}],
     }
     registry.add_recognizer(flair_recognizer)
     registry.remove_recognizer("SpacyRecognizer")
@@ -196,15 +232,17 @@ def create_nlp_engine_with_azure_ai_language(ta_key: str, ta_endpoint: str):
     if not ta_key or not ta_endpoint:
         raise RuntimeError("Please fill in the Text Analytics endpoint details")
 
+    ensure_spacy_model("en_core_web_sm")
     registry = RecognizerRegistry()
     registry.load_predefined_recognizers()
 
     azure_ai_language_recognizer = AzureAIServiceWrapper(
         ta_endpoint=ta_endpoint, ta_key=ta_key
     )
+    resolved_spacy = resolve_spacy_model_path("en_core_web_sm")
     nlp_configuration = {
         "nlp_engine_name": "spacy",
-        "models": [{"lang_code": "en", "model_name": "en_core_web_sm"}],
+        "models": [{"lang_code": "en", "model_name": resolved_spacy}],
     }
 
     nlp_engine = NlpEngineProvider(nlp_configuration=nlp_configuration).create_engine()
