@@ -30,7 +30,7 @@ class AuWestpacBsbRecognizer(PatternRecognizer):
     PATTERNS = [
         Pattern(
             "BSB Westpac (medium)",
-            r"\b(?:\d{2}[ -]?\d{4}|\d{3}[ -]?\d{3})\b",
+            r"(?:^|[\s,;:\(\)\[\]\"'])((0[3-4] [2-9]|0[3-4][2-9]|73 [0-9]|73[0-9])[ -]?\d{3,4})(?:$|[\s,;:\(\)\[\]\"']|\.\s|\.$)",
             0.1,
         )
     ]
