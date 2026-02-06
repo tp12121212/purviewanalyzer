@@ -10,6 +10,7 @@ from .country_specific.australia.au_acn_recognizer import AuAcnRecognizer
 from .country_specific.australia.au_bsb_westpac_bank import AuWestpacBsbRecognizer
 from .country_specific.australia.au_medicare_recognizer import AuMedicareRecognizer
 from .country_specific.australia.au_tfn_recognizer import AuTfnRecognizer
+from .country_specific.australia.au_tfn_recognizer import AuTfnRecognizer
 
 # Finland recognizers
 from .country_specific.finland.fi_personal_identity_code_recognizer import (

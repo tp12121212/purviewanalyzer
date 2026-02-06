@@ -30,7 +30,7 @@ class AuWestpacBsbRecognizer(PatternRecognizer):
     PATTERNS = [
         Pattern(
             "BSB Westpac (medium)",
-            r"(?:^|[\s,;:\(\)\[\]\"'])((0[3-4] [2-9]|0[3-4][2-9]|73 [0-9]|73[0-9])[ -]?\d{3,4})(?:$|[\s,;:\(\)\[\]\"']|\.\s|\.$)",
+            r"\b((0[3-4] [2-9]|0[3-4][2-9]|73 [0-9]|73[0-9])[ -]?\d{3,4})\b",
             0.1,
         )
     ]
@@ -76,4 +76,4 @@ class AuWestpacBsbRecognizer(PatternRecognizer):
         text = EntityRecognizer.sanitize_value(pattern_text, self.replacement_pairs)
         if not text.isdigit() or len(text) != 6:
             return False
-        return text.startswith(("03", "73"))
+        return text.startswith(("03", "04","73"))
