@@ -27,6 +27,7 @@ dddd
 htmlcov/
 logs/
 *.log
+custom_recognizers/
 *.pem
 *.key
 *.p12

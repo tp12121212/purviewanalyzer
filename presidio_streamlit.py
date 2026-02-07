@@ -1,4 +1,5 @@
 """Streamlit app for Purview Analyser."""
+import json
 import logging
 import os
 import traceback
@@ -12,7 +13,10 @@ from annotated_text import annotated_text
 from sqlalchemy import distinct, select
 from streamlit_tags import st_tags
 
-from app.config import auto_import_enabled, get_predefined_recognizers_path
+from app.config import (
+    auto_import_enabled,
+    get_predefined_recognizers_path,
+)
 from app.db import SessionLocal, init_db
 from app.docs_renderer import DOCS_ROOT, render_docs_page
 from app.entities_service import get_entity_detail, list_entities
@@ -20,6 +24,18 @@ from app.github_browser import render_repo_browser
 from app.file_extract import SUPPORTED_EXTENSIONS, extract_text_from_uploads
 from app.import_entities import load_entity_specs, upsert_entities
 from app.models import Entity
+from app.recognizer_json import build_ad_hoc_recognizers, parse_ad_hoc_json
+from app.recognizer_codegen import derive_class_name, derive_module_filename
+from app.recognizers_service import (
+    RecognizerInput,
+    RecognizerValidationError,
+    create_or_update_recognizer,
+    delete_recognizer,
+    get_recognizer_detail,
+    list_recognizers,
+    unpack_allow_list,
+    unpack_deny_list,
+)
 from openai_fake_data_generator import OpenAIParams
 from app.model_storage import init_model_storage
 
@@ -178,7 +194,511 @@ def render_entities() -> None:
         st.json(detail["metadata"])
 
 
-MENU_ITEMS = ["App", "Entities", "Code", "Tutorial", "Installation", "FAQ"]
+def _default_ad_hoc_json() -> str:
+    return """{
+  "recognizers": [
+    {
+      "name": "Sample Email",
+      "supported_entities": ["EMAIL_ADDRESS"],
+      "supported_language": "en",
+      "base_score": 0.5,
+      "patterns": [
+        {
+          "name": "email",
+          "regex": "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\\\.[a-zA-Z]{2,}",
+          "score": 0.6
+        }
+      ],
+      "context": ["email", "contact"]
+    }
+  ]
+}"""
+
+
+def _list_predefined_subfolders(root: Path) -> list[str]:
+    if not root.exists():
+        return ["generic"]
+    folders = {
+        path.relative_to(root).as_posix()
+        for path in root.rglob("*")
+        if path.is_dir()
+    }
+    folders = {
+        folder
+        for folder in folders
+        if folder
+        and "__pycache__" not in folder
+    }
+    options = sorted(folders)
+    if "generic" not in options:
+        options.insert(0, "generic")
+    return options
+
+
+def _normalize_pattern_rows(rows: list[dict], base_score: float) -> list[dict]:
+    cleaned: list[dict] = []
+    for row in rows:
+        name = str(row.get("name") or "").strip()
+        regex = str(row.get("regex") or "").strip()
+        score = row.get("score")
+        if not name and not regex and (score is None or score == ""):
+            continue
+        cleaned.append(
+            {
+                "name": name or "Pattern",
+                "regex": regex,
+                "score": base_score if score in (None, "") else score,
+            }
+        )
+    return cleaned
+
+
+def _get_test_analyzer():
+    from presidio_analyzer import AnalyzerEngine, RecognizerRegistry
+    from presidio_nlp_engine_config import create_nlp_engine_with_spacy
+
+    nlp_engine, registry = create_nlp_engine_with_spacy("en_core_web_sm")
+    return AnalyzerEngine(nlp_engine=nlp_engine, registry=registry)
+
+
+def render_recognizers() -> None:
+    st.title("Recognizers")
+    st.caption(
+        "Create session-only ad-hoc recognizers or persistent recognizers that are stored and loaded on startup."
+    )
+
+    if "ad_hoc_specs" not in st.session_state:
+        st.session_state.ad_hoc_specs = []
+    if "ad_hoc_recognizers" not in st.session_state:
+        st.session_state.ad_hoc_recognizers = []
+    if "ad_hoc_json" not in st.session_state:
+        st.session_state.ad_hoc_json = _default_ad_hoc_json()
+
+    ad_hoc_tab, persistent_tab = st.tabs(["Ad-hoc (Session)", "Persistent (Saved)"])
+
+    with ad_hoc_tab:
+        st.subheader("Import JSON")
+        ad_hoc_json = st.text_area(
+            "Ad-hoc recognizers JSON",
+            height=260,
+            key="ad_hoc_json",
+        )
+        col_validate, col_load, col_clear = st.columns([1, 1, 1])
+        with col_validate:
+            if st.button("Validate JSON"):
+                try:
+                    specs = parse_ad_hoc_json(ad_hoc_json)
+                    st.success(f"Valid JSON. {len(specs)} recognizer(s) found.")
+                except RecognizerValidationError as exc:
+                    st.error(str(exc))
+        with col_load:
+            if st.button("Load into session"):
+                try:
+                    specs = parse_ad_hoc_json(ad_hoc_json)
+                    recognizers = build_ad_hoc_recognizers(specs)
+                    st.session_state.ad_hoc_specs = specs
+                    st.session_state.ad_hoc_recognizers = recognizers
+                    st.session_state.ad_hoc_json = ad_hoc_json
+                    st.success(f"Loaded {len(specs)} recognizer(s).")
+                except RecognizerValidationError as exc:
+                    st.error(str(exc))
+        with col_clear:
+            if st.button("Clear session"):
+                st.session_state.ad_hoc_specs = []
+                st.session_state.ad_hoc_recognizers = []
+                st.success("Cleared session recognizers.")
+
+        st.subheader("Loaded session recognizers")
+        if st.session_state.ad_hoc_specs:
+            st.dataframe(
+                [
+                    {
+                        "name": spec.name,
+                        "entity_type": spec.entity_type,
+                        "language": spec.language or "n/a",
+                        "patterns": len(spec.patterns),
+                        "context": len(spec.context),
+                    }
+                    for spec in st.session_state.ad_hoc_specs
+                ],
+                use_container_width=True,
+            )
+            selected_idx = st.selectbox(
+                "Select recognizer",
+                options=list(range(len(st.session_state.ad_hoc_specs))),
+                format_func=lambda idx: f"{st.session_state.ad_hoc_specs[idx].name} ({st.session_state.ad_hoc_specs[idx].entity_type})",
+            )
+            col_edit, col_remove = st.columns([1, 1])
+            with col_edit:
+                if st.button("Load selected into editor"):
+                    spec = st.session_state.ad_hoc_specs[selected_idx]
+                    st.session_state.ad_hoc_json = json.dumps(
+                        {
+                            "recognizers": [
+                                {
+                                    "name": spec.name,
+                                    "supported_entities": [spec.entity_type],
+                                    "supported_language": spec.language,
+                                    "base_score": spec.base_score,
+                                    "patterns": spec.patterns,
+                                    "context": spec.context,
+                                    "allow_list": spec.allow_list,
+                                    "deny_list": spec.deny_list,
+                                }
+                            ]
+                        },
+                        indent=2,
+                    )
+                    st.success("Loaded selected recognizer into editor.")
+            with col_remove:
+                if st.button("Remove selected"):
+                    remaining = [
+                        spec
+                        for i, spec in enumerate(st.session_state.ad_hoc_specs)
+                        if i != selected_idx
+                    ]
+                    st.session_state.ad_hoc_specs = remaining
+                    st.session_state.ad_hoc_recognizers = build_ad_hoc_recognizers(remaining)
+                    st.success("Removed recognizer from session.")
+        else:
+            st.info("No ad-hoc recognizers loaded for this session.")
+
+        st.subheader("Test recognizer")
+        test_text = st.text_area("Sample text", value="", height=120, key="ad_hoc_test")
+        if st.session_state.ad_hoc_recognizers:
+            entity_options = sorted({spec.entity_type for spec in st.session_state.ad_hoc_specs})
+            selected_entities = st.multiselect(
+                "Entities to test", options=entity_options, default=entity_options
+            )
+            if st.button("Run test", key="ad_hoc_test_run"):
+                analyzer = _get_test_analyzer()
+                results = analyzer.analyze(
+                    text=test_text,
+                    language="en",
+                    entities=selected_entities or None,
+                    ad_hoc_recognizers=st.session_state.ad_hoc_recognizers,
+                )
+                if results:
+                    st.dataframe(
+                        [
+                            {
+                                "entity_type": res.entity_type,
+                                "start": res.start,
+                                "end": res.end,
+                                "score": res.score,
+                                "text": test_text[res.start : res.end],
+                            }
+                            for res in results
+                        ],
+                        use_container_width=True,
+                    )
+                else:
+                    st.info("No matches found.")
+        else:
+            st.info("Load ad-hoc recognizers to enable testing.")
+
+    with persistent_tab:
+        st.subheader("Saved recognizers")
+        st.caption(
+            "Advanced logic (e.g., checksum validators) is not supported yet. "
+            "Add a custom EntityRecognizer class to enable it."
+        )
+        init_db()
+        with SessionLocal() as session:
+            recognizers = list_recognizers(session)
+
+        if recognizers:
+            st.dataframe(
+                [
+                    {
+                        "id": rec.id,
+                        "name": rec.name,
+                        "entity_type": rec.entity_type,
+                        "language": rec.language or "n/a",
+                        "enabled": rec.enabled,
+                        "module": rec.module_path,
+                    }
+                    for rec in recognizers
+                ],
+                use_container_width=True,
+            )
+        else:
+            st.info("No saved recognizers found.")
+
+        selected_id = None
+        if recognizers:
+            selected_id = st.selectbox(
+                "Edit recognizer",
+                options=[rec.id for rec in recognizers],
+                format_func=lambda rid: next(
+                    (f"{rec.name} ({rec.entity_type})" for rec in recognizers if rec.id == rid),
+                    str(rid),
+                ),
+            )
+
+        if selected_id:
+            with SessionLocal() as session:
+                selected = get_recognizer_detail(session, selected_id)
+                if selected:
+                    _ = list(selected.patterns)
+                    _ = list(selected.contexts)
+        else:
+            selected = None
+
+        if selected:
+            export_payload = {
+                "recognizers": [
+                    {
+                        "name": selected.name,
+                        "supported_entities": [selected.entity_type],
+                        "supported_language": selected.language,
+                        "base_score": selected.base_score,
+                        "patterns": [
+                            {
+                                "name": pattern.pattern_name,
+                                "regex": pattern.regex,
+                                "score": pattern.score,
+                            }
+                            for pattern in sorted(
+                                selected.patterns, key=lambda p: p.order_index
+                            )
+                        ],
+                        "context": [c.context for c in selected.contexts],
+                        "allow_list": unpack_allow_list(selected),
+                        "deny_list": unpack_deny_list(selected),
+                    }
+                ]
+            }
+            st.download_button(
+                "Export recognizer JSON",
+                data=json.dumps(export_payload, indent=2),
+                file_name=f"{selected.name}_recognizer.json",
+                mime="application/json",
+            )
+
+        form_defaults = {
+            "name": selected.name if selected else "",
+            "entity_type": selected.entity_type if selected else "",
+            "language": selected.language if selected else "en",
+            "description": selected.description if selected else "",
+            "enabled": selected.enabled if selected else True,
+            "base_score": selected.base_score if selected else 0.5,
+            "allow_list": unpack_allow_list(selected) if selected else [],
+            "deny_list": unpack_deny_list(selected) if selected else [],
+            "context": [c.context for c in selected.contexts] if selected else [],
+            "storage_subpath": selected.storage_subpath if selected else "generic",
+            "version": selected.version if selected else "",
+        }
+        pattern_defaults = []
+        if selected:
+            for pattern in sorted(selected.patterns, key=lambda p: p.order_index):
+                pattern_defaults.append(
+                    {
+                        "name": pattern.pattern_name or "",
+                        "regex": pattern.regex or "",
+                        "score": pattern.score if pattern.score is not None else form_defaults["base_score"],
+                    }
+                )
+        if not pattern_defaults:
+            pattern_defaults = [{"name": "", "regex": "", "score": form_defaults["base_score"]}]
+
+        st.subheader("Create / Update")
+        entity_input_key = f"entity_type_input_{selected_id or 'new'}"
+        if entity_input_key not in st.session_state:
+            st.session_state[entity_input_key] = form_defaults["entity_type"]
+        with st.form("recognizer_form"):
+            name = st.text_input(
+                "Recognizer name :red[*]",
+                value=form_defaults["name"],
+                placeholder="Example: Custom Email Recognizer",
+                help="Required. Used to generate the Python class name and default file name.",
+            )
+
+            st.text_input(
+                "Supported entity key :red[*]",
+                placeholder="Example: AU_TFN",
+                help="Required. New entity token returned by this recognizer and shown in PII entity selection.",
+                key=entity_input_key,
+            )
+
+            language = st.text_input(
+                "Language :red[*]",
+                value=form_defaults["language"],
+                placeholder="Example: en",
+                help="Required. Language code for this recognizer.",
+            )
+            description = st.text_area(
+                "Description",
+                value=form_defaults["description"],
+                height=80,
+                placeholder="Example: Detects internal email addresses for ACME.",
+                help="Optional. Saved as class docstring in generated Python file.",
+            )
+            enabled = st.checkbox("Enabled", value=form_defaults["enabled"])
+            base_score = st.number_input(
+                "Base score (used when a pattern score is missing)",
+                min_value=0.0,
+                max_value=1.0,
+                value=float(form_defaults["base_score"] or 0.5),
+                help="Optional fallback confidence score. Example: 0.5",
+            )
+
+            st.caption("Patterns :red[*]")
+            st.caption("Required. At least one pattern row must have a regex. Example: name=TFN (Medium), regex=\\b\\d{3}\\s\\d{3}\\s\\d{3}\\b, score=0.1")
+            pattern_rows = st.data_editor(
+                pattern_defaults,
+                num_rows="dynamic",
+                use_container_width=True,
+                key=f"pattern_editor_{selected_id or 'new'}",
+            )
+
+            st.caption("Context words")
+            st.caption("Context weighting is not supported in this app yet.")
+            context_words = st_tags(
+                label="Context",
+                text="Example: email, contact (press enter to add more)",
+                value=form_defaults["context"],
+                key=f"context_tags_{selected_id or 'new'}",
+            )
+
+            st.caption("Allow list")
+            allow_list = st_tags(
+                label="Allow list",
+                text="Example: noreply@acme.com (press enter to add more)",
+                value=form_defaults["allow_list"],
+                key=f"allow_tags_{selected_id or 'new'}",
+            )
+            st.caption("Note: allow list is stored in DB but not applied by PatternRecognizer in this Presidio version.")
+
+            st.caption("Deny list")
+            deny_list = st_tags(
+                label="Deny list",
+                text="Example: jane.doe@acme.com (press enter to add more)",
+                value=form_defaults["deny_list"],
+                key=f"deny_tags_{selected_id or 'new'}",
+            )
+
+            st.caption("Storage location")
+            storage_root = get_predefined_recognizers_path()
+            st.write(f"Root: {storage_root}")
+            folder_options = _list_predefined_subfolders(storage_root)
+            selected_folder = form_defaults["storage_subpath"] or "generic"
+            if selected_folder not in folder_options:
+                folder_options = [selected_folder] + folder_options
+            storage_subpath = st.selectbox(
+                "Optional subfolder",
+                options=folder_options,
+                index=folder_options.index(selected_folder),
+                help="Target folder under predefined_recognizers for generated Python file. Default is generic.",
+            )
+            version = st.text_input(
+                "Version (optional)",
+                value=form_defaults["version"],
+                placeholder="Example: 1.0.0",
+            )
+
+            preview_entity = (st.session_state.get(entity_input_key, "") or "").strip()
+            preview_class = derive_class_name(name or "", preview_entity or "")
+            preview_file = derive_module_filename(preview_class)
+            st.caption(
+                f"Generated class: `{preview_class}` | Generated file: `{storage_subpath}/{preview_file}`"
+            )
+
+            submitted = st.form_submit_button("Save recognizer")
+
+        if submitted:
+            try:
+                entity_type = (st.session_state.get(entity_input_key, "") or "").strip()
+                if not entity_type:
+                    raise RecognizerValidationError("Supported entity key is required.")
+                normalized_patterns = _normalize_pattern_rows(pattern_rows, float(base_score))
+                with SessionLocal() as session:
+                    recognizer_input = RecognizerInput(
+                        name=name,
+                        entity_type=entity_type,
+                        language=language or "en",
+                        description=description or None,
+                        enabled=enabled,
+                        base_score=base_score,
+                        patterns=normalized_patterns,
+                        context=context_words,
+                        allow_list=allow_list,
+                        deny_list=deny_list,
+                        storage_subpath=storage_subpath or None,
+                        version=version or None,
+                    )
+                    create_or_update_recognizer(
+                        session=session,
+                        data=recognizer_input,
+                        recognizer_id=selected_id,
+                    )
+                st.success("Recognizer saved. Reload recognizers to activate.")
+            except RecognizerValidationError as exc:
+                st.error(str(exc))
+
+        if selected_id and st.button("Delete recognizer"):
+            with SessionLocal() as session:
+                delete_recognizer(session, selected_id)
+            st.success("Recognizer deleted.")
+
+        st.subheader("Test recognizer")
+        test_text = st.text_area("Sample text", value="", height=120, key="persistent_test")
+        if st.button("Run test", key="persistent_test_run"):
+            entity_type = (st.session_state.get(entity_input_key, "") or "").strip()
+            if not entity_type:
+                st.error("Enter a supported entity key to test.")
+            else:
+                normalized_patterns = _normalize_pattern_rows(pattern_rows, float(base_score))
+                analyzer = _get_test_analyzer()
+                specs = parse_ad_hoc_json(
+                    json.dumps(
+                        {
+                            "recognizers": [
+                                {
+                                    "name": name or "TestRecognizer",
+                                    "supported_entities": [entity_type],
+                                    "supported_language": language or "en",
+                                    "base_score": base_score,
+                                    "patterns": normalized_patterns,
+                                    "context": context_words,
+                                    "allow_list": allow_list,
+                                    "deny_list": deny_list,
+                                }
+                            ]
+                        }
+                    )
+                )
+                ad_hoc = build_ad_hoc_recognizers(specs)
+                results = analyzer.analyze(
+                    text=test_text,
+                    language=language or "en",
+                    entities=[entity_type],
+                    ad_hoc_recognizers=ad_hoc,
+                )
+                if results:
+                    st.dataframe(
+                        [
+                            {
+                                "entity_type": res.entity_type,
+                                "start": res.start,
+                                "end": res.end,
+                                "score": res.score,
+                                "text": test_text[res.start : res.end],
+                            }
+                            for res in results
+                        ],
+                        use_container_width=True,
+                    )
+                else:
+                    st.info("No matches found.")
+
+        if st.button("Reload recognizers"):
+            st.cache_resource.clear()
+            st.cache_data.clear()
+            st.success("Registry cache cleared. Re-run analysis to use new recognizers.")
+
+
+MENU_ITEMS = ["App", "Entities", "Recognizers", "Code", "Tutorial", "Installation", "FAQ"]
 
 
 def _doc_entry(path: Path) -> Path:
@@ -280,6 +800,9 @@ page = nav_selection
 
 if page == "Entities":
     render_entities()
+    st.stop()
+if page == "Recognizers":
+    render_recognizers()
     st.stop()
 if page in DOCS_PAGES:
     doc_path = None
@@ -525,10 +1048,15 @@ st_text = col1.text_area(
 try:
     # Choose entities
     st_entities_expander = st.sidebar.expander("Choose entities to look for")
+    supported_entities = list(get_supported_entities(*analyzer_params))
+    ad_hoc_entities = []
+    if "ad_hoc_specs" in st.session_state:
+        ad_hoc_entities = [spec.entity_type for spec in st.session_state.ad_hoc_specs]
+    combined_entities = sorted(set(supported_entities + ad_hoc_entities))
     st_entities = st_entities_expander.multiselect(
         label="Which entities to look for?",
-        options=get_supported_entities(*analyzer_params),
-        default=list(get_supported_entities(*analyzer_params)),
+        options=combined_entities,
+        default=combined_entities,
         help="Limit the list of PII entities detected. "
         "This list is dynamic and based on the NER model and registered recognizers. "
         "[Learn more](https://microsoft.github.io/presidio/analyzer/adding_recognizers/).",
@@ -548,6 +1076,7 @@ try:
         return_decision_process=st_return_decision_process,
         allow_list=st_allow_list,
         deny_list=st_deny_list,
+        ad_hoc_recognizers=st.session_state.get("ad_hoc_recognizers"),
     )
 
     # After

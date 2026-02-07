@@ -112,15 +112,22 @@ def analyze(
     if "entities" not in kwargs or "All" in kwargs["entities"]:
         kwargs["entities"] = None
 
+    ad_hoc_recognizers = list(kwargs.get("ad_hoc_recognizers") or [])
+
     if "deny_list" in kwargs and kwargs["deny_list"] is not None:
         ad_hoc_recognizer = create_ad_hoc_deny_list_recognizer(kwargs["deny_list"])
-        kwargs["ad_hoc_recognizers"] = [ad_hoc_recognizer] if ad_hoc_recognizer else []
+        if ad_hoc_recognizer:
+            ad_hoc_recognizers.append(ad_hoc_recognizer)
         del kwargs["deny_list"]
 
     if "regex_params" in kwargs and len(kwargs["regex_params"]) > 0:
         ad_hoc_recognizer = create_ad_hoc_regex_recognizer(*kwargs["regex_params"])
-        kwargs["ad_hoc_recognizers"] = [ad_hoc_recognizer] if ad_hoc_recognizer else []
+        if ad_hoc_recognizer:
+            ad_hoc_recognizers.append(ad_hoc_recognizer)
         del kwargs["regex_params"]
+
+    if ad_hoc_recognizers:
+        kwargs["ad_hoc_recognizers"] = ad_hoc_recognizers
 
     return analyzer_engine(model_family, model_path, ta_key, ta_endpoint).analyze(
         **kwargs

@@ -83,3 +83,73 @@ class EntityMetadata(Base):
     )
 
     entity: Mapped[Entity] = relationship(back_populates="metadata_items")
+
+
+class Recognizer(Base):
+    __tablename__ = "recognizers"
+    __table_args__ = (
+        UniqueConstraint(
+            "name", "entity_type", "language", name="uq_recognizers_name_entity_lang"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    entity_type: Mapped[str] = mapped_column(String, nullable=False)
+    language: Mapped[str | None] = mapped_column(String, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    base_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    allow_list_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    deny_list_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    storage_root: Mapped[str] = mapped_column(String, nullable=False)
+    storage_subpath: Mapped[str | None] = mapped_column(String, nullable=True)
+    module_path: Mapped[str] = mapped_column(String, nullable=False)
+    class_name: Mapped[str] = mapped_column(String, nullable=False)
+    version: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    patterns: Mapped[list[RecognizerPattern]] = relationship(
+        back_populates="recognizer", cascade="all, delete-orphan"
+    )
+    contexts: Mapped[list[RecognizerContext]] = relationship(
+        back_populates="recognizer", cascade="all, delete-orphan"
+    )
+
+
+class RecognizerPattern(Base):
+    __tablename__ = "recognizer_patterns"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    recognizer_id: Mapped[int] = mapped_column(
+        ForeignKey("recognizers.id"), nullable=False
+    )
+    pattern_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    regex: Mapped[str | None] = mapped_column(Text, nullable=True)
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    order_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    recognizer: Mapped[Recognizer] = relationship(back_populates="patterns")
+
+
+class RecognizerContext(Base):
+    __tablename__ = "recognizer_context"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    recognizer_id: Mapped[int] = mapped_column(
+        ForeignKey("recognizers.id"), nullable=False
+    )
+    context: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    recognizer: Mapped[Recognizer] = relationship(back_populates="contexts")

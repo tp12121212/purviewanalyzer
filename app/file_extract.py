@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import io
 import os
+import re
 import shutil
 import tempfile
 from dataclasses import dataclass
@@ -189,35 +190,87 @@ def _ocr_image(image: Image.Image) -> str:
     return "\n".join([t for t in [best_text.strip(), mrz_text.strip()] if t]).strip()
 
 
-def _extract_pdf(path: Path) -> str:
+def _normalize_pdf_text(text: str) -> str:
+    if not text:
+        return ""
+
+    cleaned_lines: List[str] = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            cleaned_lines.append("")
+            continue
+
+        # Normalize whitespace while preserving line boundaries.
+        line = re.sub(r"\s+", " ", line)
+
+        # Recover common missing boundaries such as "BSBNumber", "2024to04/..."
+        line = re.sub(r"([a-z])([A-Z])", r"\1 \2", line)
+        line = re.sub(r"([A-Z]{2,})([A-Z][a-z])", r"\1 \2", line)
+        line = re.sub(r"(\d)([A-Za-z])", r"\1 \2", line)
+        line = re.sub(r"([A-Za-z])(\d)", r"\1 \2", line)
+
+        # Keep punctuation spacing readable.
+        line = re.sub(r"\s+([,.;:!?])", r"\1", line)
+        line = re.sub(r"(?<=[A-Za-z])\.(?=[A-Za-z])", ". ", line)
+        line = re.sub(r"\s+\)", ")", line)
+        line = re.sub(r"\(\s+", "(", line)
+
+        cleaned_lines.append(line.strip())
+
+    text = "\n".join(cleaned_lines)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    return text
+
+
+def _extract_pdf_text_pymupdf(doc: fitz.Document) -> str:
+    pages: List[str] = []
+    for page in doc:
+        page_text = page.get_text("text", sort=True) or ""
+        page_text = _normalize_pdf_text(page_text)
+        if page_text:
+            pages.append(page_text)
+    return "\n\n".join(pages).strip()
+
+
+def _extract_pdf_text_pypdf(path: Path) -> str:
     text_parts: List[str] = []
     reader = PdfReader(str(path))
-    has_text = False
     for page in reader.pages:
         page_text = page.extract_text() or ""
-        if page_text.strip():
-            has_text = True
         text_parts.append(page_text)
-    combined = "\n".join(text_parts).strip()
-    if has_text and combined:
-        return combined
+    return _normalize_pdf_text("\n".join(text_parts))
+
+
+def _extract_pdf(path: Path) -> str:
+    doc = fitz.open(str(path))
+
+    # Prefer PyMuPDF text extraction since it keeps page layout and spacing better
+    # on bank statement style PDFs compared with generic stream extraction.
+    fitz_text = _extract_pdf_text_pymupdf(doc)
+    if fitz_text and _text_quality(fitz_text) > 0.45:
+        return fitz_text
+
+    # Fallback to pypdf stream extraction for text PDFs where fitz extraction is weak.
+    pypdf_text = _extract_pdf_text_pypdf(path)
+    if pypdf_text and _text_quality(pypdf_text) > 0.45:
+        return pypdf_text
 
     # OCR fallback for scanned PDFs (try PyMuPDF OCR text first)
-    doc = fitz.open(str(path))
     ocr_text_parts: List[str] = []
     for page in doc:
         try:
             textpage = page.get_textpage_ocr(language=os.getenv("OCR_LANG", "eng"))
             page_text = textpage.extractText().strip()
             if page_text and _text_quality(page_text) > 0.5:
-                ocr_text_parts.append(page_text)
+                ocr_text_parts.append(_normalize_pdf_text(page_text))
                 continue
         except Exception:
             pass
 
         pix = page.get_pixmap(dpi=300)
         img = Image.open(io.BytesIO(pix.tobytes("png")))
-        ocr_text_parts.append(_ocr_image(img))
+        ocr_text_parts.append(_normalize_pdf_text(_ocr_image(img)))
 
     if ocr_text_parts:
         return "\n".join([p for p in ocr_text_parts if p]).strip()
@@ -227,7 +280,7 @@ def _extract_pdf(path: Path) -> str:
     for page in doc:
         pix = page.get_pixmap(dpi=300)
         img = Image.open(io.BytesIO(pix.tobytes("png")))
-        ocr_parts.append(_ocr_image(img))
+        ocr_parts.append(_normalize_pdf_text(_ocr_image(img)))
     return "\n".join(ocr_parts).strip()
 
 

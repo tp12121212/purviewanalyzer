@@ -10,6 +10,7 @@ from app.model_storage import (
     get_storage_paths,
     resolve_spacy_model_path,
 )
+from app.recognizer_loader import load_country_specific_recognizers, load_persistent_recognizers
 from presidio_analyzer import RecognizerRegistry
 from presidio_analyzer.nlp_engine import (
     NlpEngine,
@@ -55,28 +56,8 @@ def _iter_local_country_specific_recognizer_classes() -> Iterable[type]:
 
 def _load_additional_customer_recognizers(registry: RecognizerRegistry) -> None:
     """Load country-specific/customer recognizers from local source files."""
-
-    from presidio_analyzer import EntityRecognizer
-
-    already_loaded = {rec.__class__.__name__ for rec in registry.recognizers}
-
-    for recognizer_cls in _iter_local_country_specific_recognizer_classes():
-        recognizer_name = recognizer_cls.__name__
-
-        if recognizer_name in already_loaded:
-            continue
-
-        try:
-            recognizer = recognizer_cls()
-        except Exception as exc:  # pragma: no cover - defensive logging
-            logger.warning("Failed loading recognizer %s: %s", recognizer_name, exc)
-            continue
-
-        if not isinstance(recognizer, EntityRecognizer):
-            continue
-
-        registry.add_recognizer(recognizer)
-        already_loaded.add(recognizer_name)
+    load_country_specific_recognizers(registry)
+    load_persistent_recognizers(registry)
 
 
 def _ensure_huggingface_model(model_id: str) -> None:
