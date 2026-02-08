@@ -61,7 +61,7 @@ class AuWestpacBsbRecognizer(PatternRecognizer):
             patterns=patterns,
             context=context,
             supported_language=supported_language,
-            name=name,
+            name=name or "au_bsb_westpac_recognizer",
         )
 
     def validate_result(self, pattern_text: str) -> bool:
