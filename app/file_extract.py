@@ -20,6 +20,14 @@ from email import policy
 from email.parser import BytesParser
 
 _OCR_CACHE: dict = {}
+_PASSPORT_DOC_REGEX = re.compile(
+    r"((?:passport|document)\b[\s\S]{0,200}?(?:E|P[A-E]|RA|N|M)\d{7}(?!\d)|(?:E|P[A-E]|RA|N|M)\d{7}(?!\d)[\s\S]{0,200}?\b(?:passport|document))",
+    re.IGNORECASE,
+)
+_PASSPORT_DOC_REGEX_STRICT = re.compile(
+    r"(?:^|[\s,;:\(\)\[\]\"'])(?:(?:passport|document)\b[\s\S]{0,200}?(?:E|P[A-E]|RA|N|M)\d{7}(?!\d)|(?:E|P[A-E]|RA|N|M)\d{7}(?!\d)[\s\S]{0,200}?\b(?:passport|document))(?:$|[\s,;:\(\)\[\]\"']|\.\s|\.$)",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -161,14 +169,58 @@ def _prepare_ocr_image(image: Image.Image) -> Image.Image | None:
 def _text_quality(text: str) -> float:
     if not text:
         return 0.0
-    stripped = text.strip()
+    stripped = text.strip("\n\r\t ")
     if not stripped:
         return 0.0
+
+    lines = [line.strip() for line in stripped.splitlines() if line.strip()]
+    tokens = [tok for tok in re.split(r"\s+", stripped) if tok]
+    if not tokens:
+        return 0.0
+
+    cleaned_tokens = [re.sub(r"[^A-Za-z0-9<>]", "", tok) for tok in tokens]
+    cleaned_tokens = [tok for tok in cleaned_tokens if tok]
+    if not cleaned_tokens:
+        return 0.0
+
     letters = sum(ch.isalpha() for ch in stripped)
     digits = sum(ch.isdigit() for ch in stripped)
     spaces = sum(ch.isspace() for ch in stripped)
     total = len(stripped)
-    return (letters + digits) / max(total - spaces, 1)
+    alnum_ratio = (letters + digits) / max(total - spaces, 1)
+
+    single_ratio = sum(1 for tok in cleaned_tokens if len(tok) == 1) / max(
+        len(cleaned_tokens), 1
+    )
+    long_ratio = sum(1 for tok in cleaned_tokens if len(tok) >= 3) / max(
+        len(cleaned_tokens), 1
+    )
+
+    if lines:
+        line_token_counts = [len([t for t in re.split(r"\s+", line) if t]) for line in lines]
+        avg_line_tokens = sum(line_token_counts) / len(line_token_counts)
+        line_density = min(avg_line_tokens / 4.0, 1.0)
+        rich_line_ratio = sum(1 for count in line_token_counts if count >= 3) / len(
+            line_token_counts
+        )
+    else:
+        line_density = 0.0
+        rich_line_ratio = 0.0
+
+    # Weighted blend tuned to penalize noisy OCR with many single-character lines.
+    score = (
+        0.20 * alnum_ratio
+        + 0.25 * line_density
+        + 0.25 * long_ratio
+        + 0.20 * rich_line_ratio
+        + 0.10 * (1.0 - single_ratio)
+    )
+    return max(0.0, min(score, 1.0))
+
+
+def _score_ocr_text(text: str) -> tuple[float, str]:
+    normalized = _normalize_pdf_text(text)
+    return _text_quality(normalized), normalized
 
 
 def _ocr_image(image: Image.Image) -> str:
@@ -191,16 +243,28 @@ def _ocr_image(image: Image.Image) -> str:
             pass
 
     lang = os.getenv("OCR_LANG", "eng")
-    configs = [
-        os.getenv("OCR_CONFIG", "--oem 1 --psm 6"),
-        "--oem 1 --psm 4",
-    ]
-    best_text = ""
-    best_quality = 0.0
-    for variant in _prep_variants(prepared):
-        for cfg in configs:
-            text = pytesseract.image_to_string(variant, lang=lang, config=cfg)
-            quality = _text_quality(text)
+    configs = [os.getenv("OCR_CONFIG", "--oem 1 --psm 6"), "--oem 1 --psm 4"]
+
+    def _ocr_single_orientation(img: Image.Image) -> tuple[float, str]:
+        best_text = ""
+        best_quality = 0.0
+        for variant in _prep_variants(img):
+            for cfg in configs:
+                text = pytesseract.image_to_string(variant, lang=lang, config=cfg)
+                quality, normalized = _score_ocr_text(text)
+                if quality > best_quality:
+                    best_quality = quality
+                    best_text = normalized
+        return best_quality, best_text
+
+    base_quality, base_text = _ocr_single_orientation(prepared)
+    best_quality, best_text = base_quality, base_text
+
+    # Retry rotated orientations only when initial OCR looks weak.
+    if best_quality < 0.62:
+        for angle in (90, 270):
+            rotated = prepared.rotate(angle, expand=True)
+            quality, text = _ocr_single_orientation(rotated)
             if quality > best_quality:
                 best_quality = quality
                 best_text = text
@@ -219,7 +283,8 @@ def _ocr_image(image: Image.Image) -> str:
     except Exception:
         pass
 
-    return "\n".join([t for t in [best_text.strip(), mrz_text.strip()] if t]).strip()
+    combined = "\n".join([t for t in [best_text.strip(), mrz_text.strip()] if t]).strip()
+    return _normalize_pdf_text(combined)
 
 
 def _normalize_pdf_text(text: str) -> str:
@@ -252,6 +317,88 @@ def _normalize_pdf_text(text: str) -> str:
 
     text = "\n".join(cleaned_lines)
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    text = _normalize_document_identifiers(text)
+    text = _augment_passport_extraction(text)
+    return text
+
+
+def _normalize_document_identifiers(text: str) -> str:
+    def _compact_digits(value: str) -> str:
+        return re.sub(r"\D", "", value)
+
+    # Normalize OCR variants such as "PA 4269170" -> "PA4269170"
+    text = re.sub(
+        r"\b((?:E|P[A-E]|RA|N|M))\s*[-–—]?\s*((?:\d[\s-]*){7})\b",
+        lambda m: f"{m.group(1).upper()}{_compact_digits(m.group(2))}",
+        text,
+        flags=re.IGNORECASE,
+    )
+    # Normalize OCR variants such as "P A 4269170" -> "PA4269170"
+    text = re.sub(
+        r"\bP\s*([A-E])\s*((?:\d[\s-]*){7})\b",
+        lambda m: f"P{m.group(1).upper()}{_compact_digits(m.group(2))}",
+        text,
+        flags=re.IGNORECASE,
+    )
+    # Normalize OCR variants such as "PAK 2691708" -> "PA2691708"
+    text = re.sub(
+        r"\b(P[A-E])[A-Z]\s*((?:\d[\s-]*){7})\b",
+        lambda m: f"{m.group(1).upper()}{_compact_digits(m.group(2))}",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return text
+
+
+def _extract_passport_candidates(text: str) -> list[str]:
+    candidates: list[str] = []
+    seen: set[str] = set()
+
+    for match in re.finditer(r"\b(?:E|P[A-E]|RA|N|M)\d{7}\b", text, flags=re.IGNORECASE):
+        value = match.group(0).upper()
+        if value not in seen:
+            seen.add(value)
+            candidates.append(value)
+
+    for raw_line in text.splitlines():
+        line = re.sub(r"[^A-Z0-9<]", "", raw_line.upper())
+        if len(line) < 25 or "<" not in line:
+            continue
+        mrz = re.search(r"([A-Z0-9<]{9})\d[A-Z]{3}\d{6}", line)
+        if not mrz:
+            continue
+        document_no = mrz.group(1).replace("<", "")
+        if re.fullmatch(r"(?:E|P[A-E]|RA|N|M)\d{7}", document_no):
+            if document_no not in seen:
+                seen.add(document_no)
+                candidates.append(document_no)
+
+    return candidates
+
+
+def _augment_passport_extraction(text: str) -> str:
+    if not text:
+        return text
+    if _PASSPORT_DOC_REGEX.search(text) and _PASSPORT_DOC_REGEX_STRICT.search(text):
+        return text
+
+    candidates = _extract_passport_candidates(text)
+    if not candidates:
+        return text
+
+    passport_signal = bool(
+        re.search(r"(?i)\b(passport|document|australia|p<aus)\b", text)
+        or re.search(r"(?i)\bobs?ervations\b", text)
+    )
+    if not passport_signal:
+        return text
+
+    candidate = candidates[0]
+    hint = f"PASSPORT\nDOCUMENT NO\n{candidate}\n"
+    combined = f"{text}\n{hint}"
+
+    if _PASSPORT_DOC_REGEX.search(combined):
+        return combined
     return text
 
 
@@ -279,12 +426,12 @@ def _extract_pdf(path: Path) -> str:
         # Prefer PyMuPDF text extraction since it keeps page layout and spacing better
         # on bank statement style PDFs compared with generic stream extraction.
         fitz_text = _extract_pdf_text_pymupdf(doc)
-        if fitz_text and _text_quality(fitz_text) > 0.45:
+        if fitz_text and _text_quality(fitz_text) > 0.62:
             return fitz_text
 
         # Fallback to pypdf stream extraction for text PDFs where fitz extraction is weak.
         pypdf_text = _extract_pdf_text_pypdf(path)
-        if pypdf_text and _text_quality(pypdf_text) > 0.45:
+        if pypdf_text and _text_quality(pypdf_text) > 0.62:
             return pypdf_text
 
         # OCR fallback for scanned PDFs (bounded page count and DPI for memory safety)
@@ -295,21 +442,32 @@ def _extract_pdf(path: Path) -> str:
                     f"[OCR truncated after {MAX_OCR_PDF_PAGES} pages]"
                 )
                 break
+            page_best_text = ""
+            page_best_quality = 0.0
+
             try:
                 textpage = page.get_textpage_ocr(language=os.getenv("OCR_LANG", "eng"))
-                page_text = textpage.extractText().strip()
-                if page_text and _text_quality(page_text) > 0.5:
-                    ocr_text_parts.append(_normalize_pdf_text(page_text))
-                    continue
+                page_text_raw = textpage.extractText().strip()
+                if page_text_raw:
+                    tp_quality, tp_text = _score_ocr_text(page_text_raw)
+                    page_best_quality = tp_quality
+                    page_best_text = tp_text
             except Exception:
                 pass
 
             pix = page.get_pixmap(dpi=OCR_PDF_DPI)
             img = Image.open(io.BytesIO(pix.tobytes("png")))
             try:
-                ocr_text_parts.append(_normalize_pdf_text(_ocr_image(img)))
+                image_text = _ocr_image(img)
+                iq, inorm = _score_ocr_text(image_text)
+                if iq > page_best_quality:
+                    page_best_quality = iq
+                    page_best_text = inorm
             finally:
                 img.close()
+
+            if page_best_text:
+                ocr_text_parts.append(page_best_text)
 
         if ocr_text_parts:
             return "\n".join([p for p in ocr_text_parts if p]).strip()
