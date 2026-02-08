@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -198,24 +199,94 @@ def ensure_package_path(root: Path, subpath: str) -> Path:
     return target_dir
 
 
-def _append_import_and_all(init_path: Path, import_line: str, class_name: str) -> None:
-    content = init_path.read_text(encoding="utf-8") if init_path.exists() else ""
-    if import_line not in content:
+def _update_all_block(content: str, class_name: str) -> str:
+    pattern = re.compile(r"__all__\s*=\s*\[(.*?)\]", re.S)
+    match = pattern.search(content)
+    if not match:
         if content and not content.endswith("\n"):
             content += "\n"
-        content += f"\n{import_line}\n"
+        return content + f'\n__all__ = [\n    "{class_name}",\n]\n'
 
-    if "__all__" not in content:
-        content += f'\n__all__ = [\n    "{class_name}",\n]\n'
-    elif f'"{class_name}"' not in content:
-        marker = "]"
-        idx = content.rfind(marker)
-        if idx != -1 and "__all__" in content[:idx]:
-            content = content[:idx] + f'    "{class_name}",\n' + content[idx:]
-        else:
-            content += f'\n__all__ = [\n    "{class_name}",\n]\n'
+    block = match.group(1)
+    items = re.findall(r'"([^"]+)"', block)
+    ordered = list(OrderedDict.fromkeys(items))
+    if class_name not in ordered:
+        ordered.append(class_name)
+    new_block = "__all__ = [\n" + "".join(f'    "{item}",\n' for item in ordered) + "]"
+    return content[: match.start()] + new_block + content[match.end() :]
 
-    init_path.write_text(content, encoding="utf-8")
+
+def _insert_import_in_sub_init(content: str, import_line: str) -> str:
+    lines = content.splitlines()
+    if import_line in lines:
+        return content
+
+    import_indices = [idx for idx, line in enumerate(lines) if line.startswith("from .")]
+    if import_indices:
+        imports = [lines[idx] for idx in import_indices]
+        imports.append(import_line)
+        imports = sorted(list(OrderedDict.fromkeys(imports)))
+        for idx, line_idx in enumerate(import_indices):
+            lines[line_idx] = imports[idx]
+        if len(imports) > len(import_indices):
+            lines.insert(import_indices[-1] + 1, imports[-1])
+        return "\n".join(lines) + "\n"
+
+    insert_idx = 0
+    for idx, line in enumerate(lines):
+        if line.startswith('"""'):
+            insert_idx = idx + 1
+            continue
+        if line.strip() == "":
+            insert_idx = idx + 1
+            continue
+        break
+    lines.insert(insert_idx, import_line)
+    return "\n".join(lines) + "\n"
+
+
+def _insert_import_in_root_init(content: str, import_line: str, dotted_subpath: str) -> str:
+    lines = content.splitlines()
+    if import_line in lines:
+        return content
+
+    section_prefix = f"from .{dotted_subpath}."
+    matching = [idx for idx, line in enumerate(lines) if line.startswith(section_prefix)]
+    if matching:
+        section_lines = [lines[idx] for idx in matching]
+        section_lines.append(import_line)
+        section_lines = sorted(list(OrderedDict.fromkeys(section_lines)))
+        for idx, line_idx in enumerate(matching):
+            lines[line_idx] = section_lines[idx]
+        if len(section_lines) > len(matching):
+            lines.insert(matching[-1] + 1, section_lines[-1])
+        return "\n".join(lines) + "\n"
+
+    section_name = dotted_subpath.split(".")[-1].replace("_", " ").title()
+    section_comment = f"# {section_name} recognizers"
+    section_start = next(
+        (idx for idx, line in enumerate(lines) if line.strip() == section_comment),
+        None,
+    )
+    if section_start is not None:
+        insert_idx = section_start + 1
+        while insert_idx < len(lines) and (
+            lines[insert_idx].startswith("from ")
+            or lines[insert_idx].startswith("import ")
+            or lines[insert_idx].strip() == ""
+            or lines[insert_idx].startswith("(")
+            or lines[insert_idx].startswith(")")
+        ):
+            insert_idx += 1
+        lines.insert(insert_idx, import_line)
+        return "\n".join(lines) + "\n"
+
+    insert_idx = next(
+        (idx for idx, line in enumerate(lines) if line.startswith("PREDEFINED_RECOGNIZERS")),
+        len(lines),
+    )
+    lines.insert(insert_idx, import_line)
+    return "\n".join(lines) + "\n"
 
 
 def update_init_exports(
@@ -225,9 +296,17 @@ def update_init_exports(
     module_name = Path(module_filename).stem
 
     sub_init = root / subpath / "__init__.py"
-    _append_import_and_all(sub_init, f"from .{module_name} import {class_name}", class_name)
+    sub_content = sub_init.read_text(encoding="utf-8") if sub_init.exists() else ""
+    sub_content = _insert_import_in_sub_init(
+        sub_content, f"from .{module_name} import {class_name}"
+    )
+    sub_content = _update_all_block(sub_content, class_name)
+    sub_init.write_text(sub_content, encoding="utf-8")
 
     dotted = subpath.replace("/", ".")
     root_import = f"from .{dotted}.{module_name} import {class_name}"
     root_init = root / "__init__.py"
-    _append_import_and_all(root_init, root_import, class_name)
+    root_content = root_init.read_text(encoding="utf-8") if root_init.exists() else ""
+    root_content = _insert_import_in_root_init(root_content, root_import, dotted)
+    root_content = _update_all_block(root_content, class_name)
+    root_init.write_text(root_content, encoding="utf-8")

@@ -6,6 +6,7 @@ from .au_medicare_recognizer import AuMedicareRecognizer
 from .au_bsb_westpac_bank import AuWestpacBsbRecognizer
 from .au_tfn_recognizer import AuTfnRecognizer
 from .au_bsb_stg_recognizer import AuBsbStgRecognizer
+from .au_passport_recognizer import AuPassportRecognizer
 
 __all__ = [
     "AuAbnRecognizer",
@@ -17,9 +18,3 @@ __all__ = [
     "AuBsbStgRecognizer",
     "AuPassportRecognizer",
 ]
-
-
-
-
-
-from .au_passport_recognizer import AuPassportRecognizer

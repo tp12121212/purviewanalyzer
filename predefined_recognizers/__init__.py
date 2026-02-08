@@ -11,6 +11,7 @@ from .country_specific.australia.au_bsb_westpac_bank import AuWestpacBsbRecogniz
 from .country_specific.australia.au_medicare_recognizer import AuMedicareRecognizer
 from .country_specific.australia.au_tfn_recognizer import AuTfnRecognizer
 from .country_specific.australia.au_bsb_stg_recognizer import AuBsbStgRecognizer
+from .country_specific.australia.au_passport_recognizer import AuPassportRecognizer
 
 # Finland recognizers
 from .country_specific.finland.fi_personal_identity_code_recognizer import (
@@ -178,8 +179,3 @@ __all__ = [
     "AuBsbStgRecognizer",
     "AuPassportRecognizer",
 ]
-
-
-
-
-from .country_specific.australia.au_passport_recognizer import AuPassportRecognizer
