@@ -50,11 +50,15 @@ def derive_module_filename(class_name: str) -> str:
     return f"{snake}.py"
 
 
+def _py_repr(value: str) -> str:
+    return repr(value)
+
+
 def _format_pattern_call(name: str, regex: str, score: str) -> list[str]:
     return [
         "        Pattern(",
-        f'            "{name}",',
-        f'            r"{regex}",',
+        f"            {_py_repr(name)},",
+        f"            {_py_repr(regex)},",
         f"            {score},",
         "        ),",
     ]
@@ -62,9 +66,7 @@ def _format_pattern_call(name: str, regex: str, score: str) -> list[str]:
 
 def generate_recognizer_module(spec: RecognizerCodegenSpec) -> str:
     description = spec.description or ""
-    supported_language = (
-        f'"{spec.language}"' if spec.language else "None"
-    )
+    supported_language = repr(spec.language) if spec.language else "None"
 
     pattern_lines: list[str] = ["    PATTERNS = ["]
     for pattern in spec.patterns:
@@ -77,9 +79,9 @@ def generate_recognizer_module(spec: RecognizerCodegenSpec) -> str:
 
     context_lines = ["    CONTEXT = ["]
     for item in spec.context:
-        context_lines.append(f'        "{item}",')
+        context_lines.append(f"        {_py_repr(item)},")
     context_lines.append("    ]")
-    deny_items = ", ".join(f'"{item}"' for item in (spec.deny_list or []))
+    deny_items = ", ".join(_py_repr(item) for item in (spec.deny_list or []))
     deny_line = (
         f"            deny_list=[{deny_items}],"
         if spec.deny_list
@@ -112,7 +114,7 @@ def generate_recognizer_module(spec: RecognizerCodegenSpec) -> str:
             "        patterns: Optional[List[Pattern]] = None,",
             "        context: Optional[List[str]] = None,",
             f"        supported_language: str = {supported_language},",
-            f'        supported_entity: str = "{spec.entity_type}",',
+            f"        supported_entity: str = {_py_repr(spec.entity_type)},",
             "        replacement_pairs: Optional[List[Tuple[str, str]]] = None,",
             "        name: Optional[str] = None,",
             "    ):",
@@ -127,7 +129,7 @@ def generate_recognizer_module(spec: RecognizerCodegenSpec) -> str:
             "            context=context,",
             "            supported_language=supported_language,",
             *( [deny_line] if deny_line else [] ),
-            '            name=name or "' + spec.name + '",',
+            f"            name=name or {_py_repr(spec.name)},",
             "        )",
             "",
             "    def validate_result(self, pattern_text: str) -> bool:",
