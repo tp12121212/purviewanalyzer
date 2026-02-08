@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import logging
 import os
-import shutil
-import sqlite3
 import threading
 import time
 from pathlib import Path
@@ -39,73 +37,8 @@ def _ensure_sqlite_dir(database_url: str) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
 
-def _sqlite_total_rows(path: Path) -> int:
-    if not path.exists() or path.stat().st_size == 0:
-        return 0
-    try:
-        conn = sqlite3.connect(path)
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
-        )
-        tables = [row[0] for row in cur.fetchall()]
-        total = 0
-        for table in tables:
-            try:
-                cur.execute(f'SELECT COUNT(*) FROM "{table}"')
-                total += int(cur.fetchone()[0])
-            except Exception:
-                continue
-        conn.close()
-        return total
-    except Exception:
-        return 0
-
-
-def _legacy_db_candidates(target_path: Path) -> list[Path]:
-    repo_root = Path(__file__).resolve().parents[1]
-    candidates = [
-        repo_root / "data" / "app.db",
-        repo_root / ".data" / "app.db",
-    ]
-    return [p for p in candidates if p.exists() and p.resolve() != target_path.resolve()]
-
-
-def _copy_legacy_db_if_needed(database_url: str) -> None:
-    db_path = _sqlite_path_from_url(database_url)
-    if db_path is None:
-        return
-    if os.getenv("DATABASE_URL"):
-        return
-
-    legacy_sources = _legacy_db_candidates(db_path)
-    if not legacy_sources:
-        return
-
-    source_with_most_rows = max(legacy_sources, key=_sqlite_total_rows)
-    source_rows = _sqlite_total_rows(source_with_most_rows)
-    target_rows = _sqlite_total_rows(db_path) if db_path.exists() else 0
-
-    should_copy = (not db_path.exists() and source_rows > 0) or (
-        db_path.exists() and target_rows == 0 and source_rows > 0
-    )
-    if not should_copy:
-        return
-
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(source_with_most_rows, db_path)
-    logger.info(
-        "Copied legacy SQLite DB from %s to %s (source rows=%s, target rows before copy=%s)",
-        source_with_most_rows,
-        db_path,
-        source_rows,
-        target_rows,
-    )
-
-
 _database_url = get_database_url()
 _ensure_sqlite_dir(_database_url)
-_copy_legacy_db_if_needed(_database_url)
 
 engine = create_engine(
     _database_url,

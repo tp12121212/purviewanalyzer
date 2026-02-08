@@ -9,7 +9,7 @@ def test_local_default_db_path(monkeypatch):
     monkeypatch.setattr(config, "_is_azure_environment", lambda: False)
     monkeypatch.setattr(config, "_is_writable_dir", lambda _path: False)
 
-    expected = (Path.cwd() / "mnt" / "data" / "app.db").resolve()
+    expected = (Path.cwd() / "mnt" / "app.db").resolve()
     assert config.get_db_path() == expected
 
 
@@ -19,7 +19,7 @@ def test_mnt_default_db_path(monkeypatch):
     monkeypatch.setattr(config, "_is_azure_environment", lambda: False)
     monkeypatch.setattr(config, "_is_writable_dir", lambda _path: True)
 
-    assert config.get_db_path() == Path("/mnt/data/app.db")
+    assert config.get_db_path() == Path("/mnt/app.db")
 
 
 def test_database_url_prefers_database_url_env(monkeypatch, tmp_path):

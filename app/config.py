@@ -20,8 +20,8 @@ def _is_writable_dir(path: Path) -> bool:
 def get_default_db_path() -> Path:
     mnt_root = Path("/mnt")
     if _is_azure_environment() or _is_writable_dir(mnt_root):
-        return (mnt_root / "data" / "app.db").resolve()
-    return (Path.cwd() / "mnt" / "data" / "app.db").resolve()
+        return (mnt_root / "app.db").resolve()
+    return (Path.cwd() / "mnt" / "app.db").resolve()
 
 
 def get_db_path() -> Path:

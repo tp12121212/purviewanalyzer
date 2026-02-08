@@ -12,12 +12,6 @@ from bs4 import BeautifulSoup
 from markdownify import markdownify as md
 
 SOURCES = {
-    "code": {
-        "url": "https://aka.ms/presidio",
-        "output": "content/docs/code.md",
-        "raw": "https://raw.githubusercontent.com/microsoft/presidio/main/README.MD",
-        "fallback": "https://github.com/microsoft/presidio",
-    },
     "tutorial": {
         "url": "https://microsoft.github.io/presidio/tutorial/",
         "output": "content/docs/tutorial.md",
@@ -33,7 +27,6 @@ SOURCES = {
 }
 
 LOCAL_LINKS = {
-    "https://aka.ms/presidio": "code.md",
     "https://microsoft.github.io/presidio/tutorial/": "tutorial.md",
     "https://microsoft.github.io/presidio/installation/": "installation.md",
     "https://microsoft.github.io/presidio/faq/": "faq.md",
@@ -94,27 +87,10 @@ def _write_markdown(output_path: Path, source_url: str, content: str) -> None:
     output_path.write_text(header + content + "\n", encoding="utf-8")
 
 
-def _sync_code(source: dict) -> str:
-    raw_url = source.get("raw")
-    if raw_url:
-        try:
-            return _fetch(raw_url)
-        except requests.HTTPError:
-            pass
-
-    fallback_url = source.get("fallback", source["url"])
-    html = _fetch(fallback_url)
+def sync_page(source: dict) -> None:
+    html = _fetch(source["url"])
     main_html = _extract_main_html(html)
-    return _convert_to_markdown(main_html)
-
-
-def sync_page(key: str, source: dict) -> None:
-    if key == "code":
-        markdown = _sync_code(source)
-    else:
-        html = _fetch(source["url"])
-        main_html = _extract_main_html(html)
-        markdown = _convert_to_markdown(main_html)
+    markdown = _convert_to_markdown(main_html)
 
     markdown = _rewrite_links(markdown)
     _write_markdown(Path(source["output"]), source["url"], markdown)
@@ -130,10 +106,10 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.page:
-        sync_page(args.page, SOURCES[args.page])
+        sync_page(SOURCES[args.page])
     else:
-        for key, source in SOURCES.items():
-            sync_page(key, source)
+        for source in SOURCES.values():
+            sync_page(source)
 
     return 0
 

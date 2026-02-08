@@ -20,7 +20,6 @@ from app.config import (
 from app.db import SessionLocal, init_db
 from app.docs_renderer import DOCS_ROOT, render_docs_page
 from app.entities_service import get_entity_detail, list_entities
-from app.github_browser import render_repo_browser
 from app.file_extract import SUPPORTED_EXTENSIONS, extract_text_from_uploads
 from app.import_entities import load_entity_specs, upsert_entities
 from app.models import Entity
@@ -772,7 +771,7 @@ def render_recognizers() -> None:
             st.success("Registry cache cleared. Re-run analysis to use new recognizers.")
 
 
-MENU_ITEMS = ["App", "Entities", "Recognizers", "Code", "Tutorial", "Installation", "FAQ"]
+MENU_ITEMS = ["App", "Entities", "Recognizers", "Tutorial", "Installation", "FAQ"]
 
 
 def _doc_entry(path: Path) -> Path:
@@ -786,7 +785,6 @@ def _doc_entry(path: Path) -> Path:
 
 
 DOCS_PAGES = {
-    "Code": _doc_entry(DOCS_ROOT / "code.md"),
     "Tutorial": _doc_entry(DOCS_ROOT / "tutorial.md"),
     "Installation": _doc_entry(DOCS_ROOT / "installation.md"),
     "FAQ": _doc_entry(DOCS_ROOT / "faq.md"),
@@ -832,8 +830,6 @@ def _doc_belongs_to_page(doc_param: str, page: str) -> bool:
         return doc_param == "installation.md" or doc_param.startswith("installation/")
     if page == "FAQ":
         return doc_param == "faq.md" or doc_param.startswith("faq/")
-    if page == "Code":
-        return doc_param == "code.md" or doc_param.startswith("code/")
     return False
 
 
@@ -850,8 +846,6 @@ if not page and doc_param:
         page = "Installation"
     elif rel.startswith("faq"):
         page = "FAQ"
-    elif rel.startswith("code"):
-        page = "Code"
 if not page:
     page = st.session_state.get("page", "App")
     if page not in MENU_ITEMS:
@@ -883,9 +877,6 @@ if page in DOCS_PAGES:
     if doc_param and _doc_belongs_to_page(doc_param, page):
         doc_path = _resolve_doc_path(doc_param)
     doc_path = doc_path or DOCS_PAGES[page]
-    if page == "Code":
-        render_repo_browser("tp12121212", "purviewanalyzer", ref="main")
-        st.stop()
     render_docs_page(page, doc_path, DOCS_ROOT)
     st.stop()
 
