@@ -762,78 +762,83 @@ def _extract_msg_itemized(
     reports: List[ExtractionResult] = []
     parts: List[str] = []
     msg = extract_msg.Message(str(path))
-    msg.process()
 
-    body_name = f"{display_name}/body.txt"
-    reports.append(_emit_progress(progress_callback, body_name, True, "Queued", "info"))
+    try:
+        body_name = f"{display_name}/body.txt"
+        reports.append(_emit_progress(progress_callback, body_name, True, "Queued", "info"))
 
-    body = []
-    if msg.subject:
-        body.append(f"Subject: {msg.subject}")
-    if msg.sender:
-        body.append(f"From: {msg.sender}")
-    if msg.to:
-        body.append(f"To: {msg.to}")
-    if msg.body:
-        body.append(msg.body)
+        body = []
+        if msg.subject:
+            body.append(f"Subject: {msg.subject}")
+        if msg.sender:
+            body.append(f"From: {msg.sender}")
+        if msg.to:
+            body.append(f"To: {msg.to}")
+        if msg.body:
+            body.append(msg.body)
 
-    body_text = "\n".join(body).strip()
-    body_text, body_truncated = _truncate_text(body_text, MAX_FILE_TEXT_CHARS)
-    if body_text:
-        parts.append(f"===== FILE: {body_name} =====\n{body_text}\n")
-    body_msg = "Extracted"
-    if body_truncated:
-        body_msg = f"Extracted (truncated to {MAX_FILE_TEXT_CHARS} chars)"
-    reports.append(_emit_progress(progress_callback, body_name, True, body_msg, "success"))
+        body_text = "\n".join(body).strip()
+        body_text, body_truncated = _truncate_text(body_text, MAX_FILE_TEXT_CHARS)
+        if body_text:
+            parts.append(f"===== FILE: {body_name} =====\n{body_text}\n")
+        body_msg = "Extracted"
+        if body_truncated:
+            body_msg = f"Extracted (truncated to {MAX_FILE_TEXT_CHARS} chars)"
+        reports.append(_emit_progress(progress_callback, body_name, True, body_msg, "success"))
 
-    attach_dir = temp_dir / f"msg_attachments_{uuid.uuid4().hex}"
-    attach_dir.mkdir(parents=True, exist_ok=True)
-    for idx, attachment in enumerate(msg.attachments):
-        if idx >= MAX_MESSAGE_ATTACHMENTS:
-            reports.append(
-                _emit_progress(
-                    progress_callback,
-                    f"{display_name}/[attachments]",
-                    False,
-                    f"Attachment limit reached ({MAX_MESSAGE_ATTACHMENTS})",
-                    "error",
+        attach_dir = temp_dir / f"msg_attachments_{uuid.uuid4().hex}"
+        attach_dir.mkdir(parents=True, exist_ok=True)
+        for idx, attachment in enumerate(msg.attachments):
+            if idx >= MAX_MESSAGE_ATTACHMENTS:
+                reports.append(
+                    _emit_progress(
+                        progress_callback,
+                        f"{display_name}/[attachments]",
+                        False,
+                        f"Attachment limit reached ({MAX_MESSAGE_ATTACHMENTS})",
+                        "error",
+                    )
                 )
-            )
-            break
+                break
 
-        filename = Path(attachment.longFilename or attachment.shortFilename or f"attachment_{idx}").name
-        attachment.save(customPath=str(attach_dir))
-        attachment_path = attach_dir / filename
-        if not attachment_path.exists():
-            reports.append(
-                _emit_progress(
-                    progress_callback,
-                    f"{display_name}/{filename}",
-                    False,
-                    "Attachment save failed",
-                    "error",
+            filename = Path(attachment.longFilename or attachment.shortFilename or f"attachment_{idx}").name
+            attachment.save(customPath=str(attach_dir))
+            attachment_path = attach_dir / filename
+            if not attachment_path.exists():
+                reports.append(
+                    _emit_progress(
+                        progress_callback,
+                        f"{display_name}/{filename}",
+                        False,
+                        "Attachment save failed",
+                        "error",
+                    )
                 )
-            )
-            continue
-        if attachment_path.stat().st_size > MAX_ATTACHMENT_BYTES:
-            reports.append(
-                _emit_progress(
-                    progress_callback,
-                    f"{display_name}/{filename}",
-                    False,
-                    f"Attachment too large (> {MAX_ATTACHMENT_BYTES} bytes)",
-                    "error",
+                continue
+            if attachment_path.stat().st_size > MAX_ATTACHMENT_BYTES:
+                reports.append(
+                    _emit_progress(
+                        progress_callback,
+                        f"{display_name}/{filename}",
+                        False,
+                        f"Attachment too large (> {MAX_ATTACHMENT_BYTES} bytes)",
+                        "error",
+                    )
                 )
-            )
-            continue
+                continue
 
-        attachment_display = f"{display_name}/{filename}"
-        att_text, att_reports = _extract_file_with_reports(
-            attachment_path, temp_dir, attachment_display, progress_callback
-        )
-        if att_text:
-            parts.append(att_text)
-        reports.extend(att_reports)
+            attachment_display = f"{display_name}/{filename}"
+            att_text, att_reports = _extract_file_with_reports(
+                attachment_path, temp_dir, attachment_display, progress_callback
+            )
+            if att_text:
+                parts.append(att_text)
+            reports.extend(att_reports)
+    finally:
+        try:
+            msg.close()
+        except Exception:
+            pass
 
     return "\n".join([p for p in parts if p]).strip(), reports
 
