@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import os
 from dataclasses import dataclass
 from typing import Any
 
@@ -26,6 +27,9 @@ class RepoFile:
 
 def _github_api_get(url: str, timeout: int = 15) -> dict[str, Any] | list[dict[str, Any]]:
     headers = {"Accept": "application/vnd.github.v3+json"}
+    token = os.getenv("GITHUB_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     response = requests.get(url, headers=headers, timeout=timeout)
     response.raise_for_status()
     return response.json()

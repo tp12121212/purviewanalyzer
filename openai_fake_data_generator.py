@@ -1,9 +1,10 @@
 from collections import namedtuple
+import logging
+import os
+import time
 from typing import Optional
 
-import openai
 from openai import OpenAI, AzureOpenAI
-import logging
 
 logger = logging.getLogger("presidio-streamlit")
 
@@ -24,23 +25,52 @@ def call_completion_model(
     :param openai_params: OpenAI parameters for the completion model
     :param max_tokens: The maximum number of tokens to generate.
     """
+    request_timeout = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "30"))
+    max_retries = int(os.getenv("OPENAI_MAX_RETRIES", "2"))
+    backoff_seconds = float(os.getenv("OPENAI_RETRY_BACKOFF_SECONDS", "1.5"))
+
     if openai_params.api_type.lower() == "azure":
         client = AzureOpenAI(
             api_version=openai_params.api_version,
             api_key=openai_params.openai_key,
             azure_endpoint=openai_params.api_base,
             azure_deployment=openai_params.deployment_id,
+            timeout=request_timeout,
+            max_retries=0,
         )
     else:
-        client = OpenAI(api_key=openai_params.openai_key)
+        client = OpenAI(
+            api_key=openai_params.openai_key,
+            timeout=request_timeout,
+            max_retries=0,
+        )
 
-    response = client.completions.create(
-        model=openai_params.model,
-        prompt=prompt,
-        max_tokens=max_tokens,
-    )
+    last_exc: Exception | None = None
+    for attempt in range(max_retries + 1):
+        try:
+            response = client.completions.create(
+                model=openai_params.model,
+                prompt=prompt,
+                max_tokens=max_tokens,
+            )
+            return response.choices[0].text.strip()
+        except Exception as exc:
+            last_exc = exc
+            if attempt >= max_retries:
+                break
+            sleep_seconds = backoff_seconds * (2**attempt)
+            logger.warning(
+                "OpenAI completion failed (attempt %s/%s): %s; retrying in %.2fs",
+                attempt + 1,
+                max_retries + 1,
+                exc,
+                sleep_seconds,
+            )
+            time.sleep(sleep_seconds)
 
-    return response.choices[0].text.strip()
+    if last_exc:
+        raise last_exc
+    return ""
 
 
 def create_prompt(anonymized_text: str) -> str:

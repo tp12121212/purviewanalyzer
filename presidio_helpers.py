@@ -3,6 +3,7 @@ Helper methods for the Presidio Streamlit app
 """
 from typing import List, Optional, Tuple
 import logging
+import os
 import streamlit as st
 from presidio_analyzer import (
     AnalyzerEngine,
@@ -94,8 +95,7 @@ def anonymizer_engine():
     return AnonymizerEngine()
 
 
-@st.cache_data
-def get_supported_entities(
+def _get_supported_entities(
     model_family: str, model_path: str, ta_key: str, ta_endpoint: str
 ):
     """Return supported entities from the Analyzer Engine."""
@@ -105,7 +105,21 @@ def get_supported_entities(
 
 
 @st.cache_data
-def analyze(
+def _get_supported_entities_cached(
+    model_family: str, model_path: str, ta_key: str, ta_endpoint: str
+):
+    return _get_supported_entities(model_family, model_path, ta_key, ta_endpoint)
+
+
+def get_supported_entities(
+    model_family: str, model_path: str, ta_key: str, ta_endpoint: str
+):
+    if os.getenv("PURVIEW_DISABLE_PII_CACHE", "0").lower() in {"1", "true", "yes", "on"}:
+        return _get_supported_entities(model_family, model_path, ta_key, ta_endpoint)
+    return _get_supported_entities_cached(model_family, model_path, ta_key, ta_endpoint)
+
+
+def _analyze(
     model_family: str, model_path: str, ta_key: str, ta_endpoint: str, **kwargs
 ):
     """Analyze input using Analyzer engine and input arguments (kwargs)."""
@@ -129,9 +143,22 @@ def analyze(
     if ad_hoc_recognizers:
         kwargs["ad_hoc_recognizers"] = ad_hoc_recognizers
 
-    return analyzer_engine(model_family, model_path, ta_key, ta_endpoint).analyze(
-        **kwargs
-    )
+    return analyzer_engine(model_family, model_path, ta_key, ta_endpoint).analyze(**kwargs)
+
+
+@st.cache_data
+def _analyze_cached(
+    model_family: str, model_path: str, ta_key: str, ta_endpoint: str, **kwargs
+):
+    return _analyze(model_family, model_path, ta_key, ta_endpoint, **kwargs)
+
+
+def analyze(
+    model_family: str, model_path: str, ta_key: str, ta_endpoint: str, **kwargs
+):
+    if os.getenv("PURVIEW_DISABLE_PII_CACHE", "0").lower() in {"1", "true", "yes", "on"}:
+        return _analyze(model_family, model_path, ta_key, ta_endpoint, **kwargs)
+    return _analyze_cached(model_family, model_path, ta_key, ta_endpoint, **kwargs)
 
 
 def anonymize(
@@ -227,7 +254,6 @@ def create_fake_data(
         return "Please provide your OpenAI key"
     results = anonymize(text=text, operator="replace", analyze_results=analyze_results)
     prompt = create_prompt(results.text)
-    print(f"Prompt: {prompt}")
     fake = call_completion_model(prompt=prompt, openai_params=openai_params)
     return fake
 

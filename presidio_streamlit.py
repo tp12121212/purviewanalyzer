@@ -56,8 +56,17 @@ init_model_storage()
 
 def _enforce_streamlit_auth() -> None:
     token = os.getenv("STREAMLIT_AUTH_TOKEN")
-    if not token:
+    allow_anonymous = os.getenv("ALLOW_ANON_ACCESS", "0").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if not token and allow_anonymous:
         return
+    if not token and not allow_anonymous:
+        st.error("Authentication required: set STREAMLIT_AUTH_TOKEN or ALLOW_ANON_ACCESS=1.")
+        st.stop()
     with st.sidebar:
         st.markdown("### Authentication")
         provided = st.text_input("Access token", type="password")
