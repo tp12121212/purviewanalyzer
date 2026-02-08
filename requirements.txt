@@ -33,3 +33,5 @@ torch
 flair
 openai
 azure-ai-textanalytics
+pytest>=8.0.0,<9
+pytest-cov>=5.0.0,<6
