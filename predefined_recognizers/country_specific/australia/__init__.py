@@ -15,8 +15,11 @@ __all__ = [
     "AuTfnRecognizer",
     "AubsbstgeorgerecognizerAu_Bsb_StgRecognizer",
     "AuBsbStgRecognizer",
+    "AuPassportRecognizer",
 ]
 
 
 
 
+
+from .au_passport_recognizer import AuPassportRecognizer

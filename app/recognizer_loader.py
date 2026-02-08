@@ -109,7 +109,7 @@ def load_persistent_recognizers(registry) -> None:
             )
             continue
 
-        module_name = f"custom_recognizers.{recognizer.class_name}"
+        module_name = f"predefined_recognizers_dynamic.{recognizer.class_name}"
         try:
             module = _load_module(path, module_name)
         except Exception as exc:

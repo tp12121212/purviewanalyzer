@@ -425,27 +425,45 @@ def render_recognizers() -> None:
         else:
             st.info("No saved recognizers found.")
 
+        mode_key = "recognizer_form_mode"
+        if mode_key not in st.session_state:
+            st.session_state[mode_key] = "edit" if recognizers else "new"
+
         selected_id = None
         if recognizers:
             selected_id = st.selectbox(
                 "Edit recognizer",
                 options=[rec.id for rec in recognizers],
+                key="recognizer_selected_id",
                 format_func=lambda rid: next(
                     (f"{rec.name} ({rec.entity_type})" for rec in recognizers if rec.id == rid),
                     str(rid),
                 ),
             )
+            mode_col1, mode_col2 = st.columns(2)
+            with mode_col1:
+                if st.button("Create new recognizer"):
+                    st.session_state[mode_key] = "new"
+            with mode_col2:
+                if st.button("Load selected for edit"):
+                    st.session_state[mode_key] = "edit"
 
-        if selected_id:
+        if not recognizers:
+            st.session_state[mode_key] = "new"
+
+        active_mode = st.session_state[mode_key]
+        selected_id_for_save = selected_id if (active_mode == "edit" and selected_id) else None
+
+        if selected_id_for_save:
             with SessionLocal() as session:
-                selected = get_recognizer_detail(session, selected_id)
+                selected = get_recognizer_detail(session, selected_id_for_save)
                 if selected:
                     _ = list(selected.patterns)
                     _ = list(selected.contexts)
         else:
             selected = None
 
-        if selected:
+        if selected and active_mode == "edit":
             export_payload = {
                 "recognizers": [
                     {
@@ -475,10 +493,14 @@ def render_recognizers() -> None:
                 file_name=f"{selected.name}_recognizer.json",
                 mime="application/json",
             )
+        elif recognizers and active_mode == "new":
+            st.info("Create mode active. Saving will create a new recognizer.")
 
         form_defaults = {
             "name": selected.name if selected else "",
             "entity_type": selected.entity_type if selected else "",
+            "class_name": selected.class_name if selected else "",
+            "module_filename": (Path(selected.module_path).name if selected else ""),
             "language": selected.language if selected else "en",
             "description": selected.description if selected else "",
             "enabled": selected.enabled if selected else True,
@@ -519,6 +541,18 @@ def render_recognizers() -> None:
                 placeholder="Example: AU_TFN",
                 help="Required. New entity token returned by this recognizer and shown in PII entity selection.",
                 key=entity_input_key,
+            )
+            class_name_input = st.text_input(
+                "Recognizer class :red[*]",
+                value=form_defaults["class_name"],
+                placeholder="Example: AuBsbStgRecognizer",
+                help="Required. Python class name written into the recognizer file.",
+            )
+            module_filename_input = st.text_input(
+                "File name :red[*]",
+                value=form_defaults["module_filename"],
+                placeholder="Example: au_bsb_stg_recognizer.py",
+                help="Required. Python file name only (no path). Saved under selected storage folder.",
             )
 
             language = st.text_input(
@@ -598,10 +632,18 @@ def render_recognizers() -> None:
             )
 
             preview_entity = (st.session_state.get(entity_input_key, "") or "").strip()
-            preview_class = derive_class_name(name or "", preview_entity or "")
-            preview_file = derive_module_filename(preview_class)
+            preview_class = (
+                (class_name_input or "").strip()
+                or derive_class_name(name or "", preview_entity or "")
+            )
+            preview_file = (
+                (module_filename_input or "").strip()
+                or derive_module_filename(preview_class)
+            )
+            if not preview_file.endswith(".py"):
+                preview_file = f"{preview_file}.py"
             st.caption(
-                f"Generated class: `{preview_class}` | Generated file: `{storage_subpath}/{preview_file}`"
+                f"Class: `{preview_class}` | File: `{storage_subpath}/{preview_file}`"
             )
 
             submitted = st.form_submit_button("Save recognizer")
@@ -611,11 +653,19 @@ def render_recognizers() -> None:
                 entity_type = (st.session_state.get(entity_input_key, "") or "").strip()
                 if not entity_type:
                     raise RecognizerValidationError("Supported entity key is required.")
+                class_name_value = class_name_input.strip()
+                if not class_name_value:
+                    raise RecognizerValidationError("Recognizer class is required.")
+                module_filename_value = module_filename_input.strip()
+                if not module_filename_value:
+                    raise RecognizerValidationError("File name is required.")
                 normalized_patterns = _normalize_pattern_rows(pattern_rows, float(base_score))
                 with SessionLocal() as session:
                     recognizer_input = RecognizerInput(
                         name=name,
                         entity_type=entity_type,
+                        class_name=class_name_value,
+                        module_filename=module_filename_value,
                         language=language or "en",
                         description=description or None,
                         enabled=enabled,
@@ -630,15 +680,15 @@ def render_recognizers() -> None:
                     create_or_update_recognizer(
                         session=session,
                         data=recognizer_input,
-                        recognizer_id=selected_id,
+                        recognizer_id=selected_id_for_save,
                     )
                 st.success("Recognizer saved. Reload recognizers to activate.")
             except RecognizerValidationError as exc:
                 st.error(str(exc))
 
-        if selected_id and st.button("Delete recognizer"):
+        if selected_id_for_save and st.button("Delete recognizer"):
             with SessionLocal() as session:
-                delete_recognizer(session, selected_id)
+                delete_recognizer(session, selected_id_for_save)
             st.success("Recognizer deleted.")
 
         st.subheader("Test recognizer")

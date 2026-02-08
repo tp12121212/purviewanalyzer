@@ -39,6 +39,8 @@ class RecognizerValidationError(ValueError):
 class RecognizerInput:
     name: str
     entity_type: str
+    class_name: str | None
+    module_filename: str | None
     language: str | None
     description: str | None
     enabled: bool
@@ -116,6 +118,38 @@ def validate_recognizer_input(data: RecognizerInput) -> None:
     validate_patterns(
         data.patterns, data.base_score, allow_empty=bool(data.deny_list)
     )
+    if data.class_name is not None and not data.class_name.strip():
+        raise RecognizerValidationError("Recognizer class cannot be empty.")
+    if data.module_filename is not None and not data.module_filename.strip():
+        raise RecognizerValidationError("File name cannot be empty.")
+
+
+def _sanitize_class_name(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9_]", "", value.strip())
+    if not cleaned:
+        raise RecognizerValidationError("Recognizer class contains no valid characters.")
+    if not cleaned[0].isalpha():
+        cleaned = f"C{cleaned}"
+    if not cleaned.endswith("Recognizer"):
+        cleaned += "Recognizer"
+    return cleaned
+
+
+def _sanitize_module_filename(value: str, class_name: str) -> str:
+    filename = value.strip()
+    if not filename:
+        raise RecognizerValidationError("File name is required.")
+    if "/" in filename or "\\" in filename:
+        raise RecognizerValidationError("File name must not contain path separators.")
+    if not filename.endswith(".py"):
+        filename += ".py"
+    stem = Path(filename).stem
+    if not stem:
+        raise RecognizerValidationError("File name stem is required.")
+    safe_stem = re.sub(r"[^A-Za-z0-9_]", "_", stem).strip("_").lower()
+    if not safe_stem:
+        safe_stem = derive_module_filename(class_name).rsplit(".py", 1)[0]
+    return f"{safe_stem}.py"
 
 
 def _compute_module_path(subpath: str | None, filename: str) -> str:
@@ -133,8 +167,16 @@ def create_or_update_recognizer(
     validate_recognizer_input(data)
 
     storage_root = get_predefined_recognizers_path()
-    class_name = derive_class_name(data.name, data.entity_type)
-    filename = derive_module_filename(class_name)
+    class_name = (
+        _sanitize_class_name(data.class_name)
+        if data.class_name
+        else derive_class_name(data.name, data.entity_type)
+    )
+    filename = (
+        _sanitize_module_filename(data.module_filename, class_name)
+        if data.module_filename
+        else derive_module_filename(class_name)
+    )
     effective_subpath = (data.storage_subpath or "generic").strip().strip("/")
     if not effective_subpath:
         effective_subpath = "generic"
@@ -265,7 +307,7 @@ def _upsert_entity_from_recognizer(
             description=recognizer.description,
             recognizer_type="PatternRecognizer",
             enabled=recognizer.enabled,
-            source="custom_recognizers",
+            source="predefined_recognizers",
             source_file=recognizer.module_path,
             source_hash=source_hash,
         )
@@ -278,7 +320,7 @@ def _upsert_entity_from_recognizer(
         entity.description = recognizer.description
         entity.recognizer_type = "PatternRecognizer"
         entity.enabled = recognizer.enabled
-        entity.source = "custom_recognizers"
+        entity.source = "predefined_recognizers"
         entity.source_file = recognizer.module_path
         entity.source_hash = source_hash
 

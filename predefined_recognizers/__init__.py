@@ -176,7 +176,10 @@ __all__ = [
     "KrPassportRecognizer",
     "AubsbstgeorgerecognizerAu_Bsb_StgRecognizer",
     "AuBsbStgRecognizer",
+    "AuPassportRecognizer",
 ]
 
 
 
+
+from .country_specific.australia.au_passport_recognizer import AuPassportRecognizer
