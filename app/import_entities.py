@@ -4,6 +4,7 @@ import argparse
 import ast
 import hashlib
 import importlib.util
+import inspect
 import json
 import os
 import sys
@@ -149,6 +150,32 @@ def _extract_init_defaults(class_node: ast.ClassDef) -> dict[str, Any]:
     return {}
 
 
+def _extract_get_supported_entities(class_node: ast.ClassDef) -> list[str]:
+    for item in class_node.body:
+        if not isinstance(item, ast.FunctionDef) or item.name != "get_supported_entities":
+            continue
+        for stmt in item.body:
+            if isinstance(stmt, ast.Return):
+                value = _eval_constant(stmt.value)
+                if isinstance(value, list):
+                    return [entry for entry in value if isinstance(entry, str)]
+        break
+    return []
+
+
+def _normalize_recognizer_type(base_names: list[str], has_patterns: bool) -> str:
+    if has_patterns:
+        return "PatternRecognizer"
+    priority = ("RemoteRecognizer", "LocalRecognizer", "PatternRecognizer")
+    for recognizer_type in priority:
+        if recognizer_type in base_names:
+            return recognizer_type
+    for name in base_names:
+        if "Recognizer" in name:
+            return name
+    return "Recognizer"
+
+
 def _parse_class_specs(
     class_node: ast.ClassDef,
     source_file: str,
@@ -158,17 +185,14 @@ def _parse_class_specs(
     base_names = [_get_name(base) for base in class_node.bases]
     if not any("Recognizer" in name for name in base_names):
         return []
-    recognizer_type = next(
-        (name for name in base_names if "Recognizer" in name),
-        "Recognizer",
-    )
-
     assignments = _extract_class_assignments(class_node)
     init_defaults = _extract_init_defaults(class_node)
 
     raw_patterns = assignments.get("PATTERNS")
+    has_patterns = isinstance(raw_patterns, (ast.List, ast.Tuple))
+    recognizer_type = _normalize_recognizer_type(base_names, has_patterns=has_patterns)
     patterns: list[PatternSpec] = []
-    if isinstance(raw_patterns, (ast.List, ast.Tuple)):
+    if has_patterns:
         for idx, elt in enumerate(raw_patterns.elts):
             spec = _parse_pattern_call(elt)
             if spec:
@@ -206,6 +230,8 @@ def _parse_class_specs(
     elif isinstance(supported_entities, list):
         entity_types = [e for e in supported_entities if isinstance(e, str)]
 
+    if not entity_types:
+        entity_types = _extract_get_supported_entities(class_node)
     if not entity_types:
         entity_types = [class_node.name]
 
@@ -282,17 +308,36 @@ def parse_module_import(path: Path, root: Path) -> list[EntitySpec]:
     for attr in module.__dict__.values():
         if not isinstance(attr, type):
             continue
+        if attr.__module__ != module.__name__:
+            # Ignore imported classes from presidio_analyzer and third-party modules.
+            continue
+        if not issubclass(attr, EntityRecognizer) or attr is EntityRecognizer:
+            continue
         class_name = attr.__name__
         base_names = [base.__name__ for base in attr.__mro__ if base is not object]
         if not any("Recognizer" in name for name in base_names):
             continue
 
-        recognizer_type = next((n for n in base_names if "Recognizer" in n), "Recognizer")
+        init_defaults: dict[str, Any] = {}
+        try:
+            signature = inspect.signature(attr.__init__)
+            for name, param in signature.parameters.items():
+                if name == "self" or param.default is inspect._empty:
+                    continue
+                init_defaults[name] = param.default
+        except Exception:
+            pass
+
         description = attr.__doc__
-        supported_entity = getattr(attr, "SUPPORTED_ENTITY", None)
-        supported_entities = getattr(attr, "SUPPORTED_ENTITIES", None)
+        supported_entity = getattr(attr, "SUPPORTED_ENTITY", init_defaults.get("supported_entity"))
+        supported_entities = getattr(attr, "SUPPORTED_ENTITIES", init_defaults.get("supported_entities"))
         context = getattr(attr, "CONTEXT", [])
         patterns_attr = getattr(attr, "PATTERNS", [])
+        recognizer_type = _normalize_recognizer_type(
+            base_names[1:], has_patterns=bool(patterns_attr)
+        )
+        supported_language = getattr(attr, "SUPPORTED_LANGUAGE", init_defaults.get("supported_language"))
+        recognizer_name = getattr(attr, "NAME", init_defaults.get("name")) or class_name
 
         entity_types: list[str] = []
         if isinstance(supported_entity, str):
@@ -300,9 +345,15 @@ def parse_module_import(path: Path, root: Path) -> list[EntitySpec]:
         elif isinstance(supported_entities, list):
             entity_types = [e for e in supported_entities if isinstance(e, str)]
         if not entity_types:
-            entity_types = [class_name]
+            # Skip classes where entity mapping could not be resolved.
+            continue
 
-        languages = [getattr(attr, "SUPPORTED_LANGUAGE", None)]
+        if isinstance(supported_language, str):
+            languages = [supported_language]
+        elif isinstance(supported_language, list):
+            languages = [lang for lang in supported_language if isinstance(lang, str)]
+        else:
+            languages = [None]
 
         patterns: list[PatternSpec] = []
         for idx, pattern in enumerate(patterns_attr or []):
@@ -324,7 +375,7 @@ def parse_module_import(path: Path, root: Path) -> list[EntitySpec]:
                 specs.append(
                     EntitySpec(
                         entity_key=entity_key,
-                        name=class_name,
+                        name=str(recognizer_name),
                         entity_type=entity_type,
                         language=language,
                         description=description,
@@ -382,7 +433,20 @@ def load_entity_specs(
 def upsert_entities(specs: list[EntitySpec]) -> int:
     init_db()
     inserted = 0
+    spec_keys = {spec.entity_key for spec in specs}
+    spec_source_files = sorted({spec.source_file for spec in specs if spec.source_file})
     with SessionLocal() as session:
+        if spec_source_files:
+            # Remove stale entries for files we just scanned. This clears old/bad rows
+            # from previous parsing strategies while preserving unrelated sources.
+            stale_query = session.query(Entity).filter(
+                Entity.source == "predefined_recognizers",
+                Entity.source_file.in_(spec_source_files),
+            )
+            if spec_keys:
+                stale_query = stale_query.filter(~Entity.entity_key.in_(spec_keys))
+            stale_query.delete(synchronize_session=False)
+
         for spec in specs:
             entity = session.execute(
                 select(Entity).where(Entity.entity_key == spec.entity_key)

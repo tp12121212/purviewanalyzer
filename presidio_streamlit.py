@@ -169,7 +169,23 @@ def render_entities() -> None:
         return
 
     st.subheader("Entities")
-    st.dataframe(results["items"], use_container_width=True)
+    display_items = []
+    for item in results["items"]:
+        display_items.append(
+            {
+                "id": item["id"],
+                "name": item["name"],
+                "Entity_Display_Name": item["entity_type"],
+                "language": item["language"],
+                "recognizer_type": item["recognizer_type"],
+                "enabled": item["enabled"],
+                "updated_at": item["updated_at"],
+                "patterns_count": item["patterns_count"],
+                "context_count": item["context_count"],
+                "metadata_count": item["metadata_count"],
+            }
+        )
+    st.dataframe(display_items, use_container_width=True)
 
     entity_lookup = {
         f"{item['name']} ({item['entity_type']})": item["id"]
@@ -189,7 +205,7 @@ def render_entities() -> None:
     detail_col1, detail_col2 = st.columns(2)
     with detail_col1:
         st.write(f"**Name:** {detail['name']}")
-        st.write(f"**Entity type:** {detail['entity_type']}")
+        st.write(f"**Entity Display Name:** {detail['entity_type']}")
         st.write(f"**Language:** {detail['language'] or 'n/a'}")
         st.write(f"**Recognizer type:** {detail['recognizer_type']}")
     with detail_col2:
@@ -560,9 +576,9 @@ def render_recognizers() -> None:
             )
 
             st.text_input(
-                "Supported entity key :red[*]",
-                placeholder="Example: AU_TFN",
-                help="Required. New entity token returned by this recognizer and shown in PII entity selection.",
+                "Entity Display Name :red[*]",
+                placeholder="Example: AU_BSB_STG",
+                help="Name displayed in the supported entities pick list i.e. AU_BSB_STG",
                 key=entity_input_key,
             )
             class_name_input = st.text_input(
@@ -675,7 +691,7 @@ def render_recognizers() -> None:
             try:
                 entity_type = (st.session_state.get(entity_input_key, "") or "").strip()
                 if not entity_type:
-                    raise RecognizerValidationError("Supported entity key is required.")
+                    raise RecognizerValidationError("Entity Display Name is required.")
                 class_name_value = class_name_input.strip()
                 if not class_name_value:
                     raise RecognizerValidationError("Recognizer class is required.")
@@ -719,7 +735,7 @@ def render_recognizers() -> None:
         if st.button("Run test", key="persistent_test_run"):
             entity_type = (st.session_state.get(entity_input_key, "") or "").strip()
             if not entity_type:
-                st.error("Enter a supported entity key to test.")
+                st.error("Enter an Entity Display Name to test.")
             else:
                 normalized_patterns = _normalize_pattern_rows(pattern_rows, float(base_score))
                 analyzer = _get_test_analyzer()
