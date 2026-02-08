@@ -1,13 +1,3 @@
----
-title: Presidio Demo
-emoji: 🅿
-colorFrom: purple
-colorTo: gray
-sdk: docker
-app_port: 7860
-license: mit
----
-
 # Purview Analyzer
 
 Purview Analyzer is a Presidio-derived Streamlit app for:
