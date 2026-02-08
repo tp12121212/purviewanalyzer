@@ -1025,21 +1025,50 @@ uploaded_files = col1.file_uploader(
     accept_multiple_files=True,
 )
 if uploaded_files:
+    def _render_extraction_status(reports: list[object], expanded: bool) -> None:
+        with col1.expander("Extraction status", expanded=expanded):
+            for report in reports:
+                status = getattr(report, "status", "success")
+                if status == "error":
+                    st.error(f"{report.filename}: {report.message}")
+                elif status == "info":
+                    st.info(f"{report.filename}: {report.message}")
+                else:
+                    st.success(f"{report.filename}: {report.message}")
+
     file_signature = tuple((f.name, f.size) for f in uploaded_files)
     if st.session_state.get("last_upload_signature") != file_signature:
+        progress_reports: dict[str, object] = {}
+        progress_box = col1.empty()
+
+        def _render_progress_reports() -> None:
+            with progress_box.container():
+                with st.expander("Extraction status", expanded=True):
+                    for report in progress_reports.values():
+                        status = getattr(report, "status", "success")
+                        if status == "error":
+                            st.error(f"{report.filename}: {report.message}")
+                        elif status == "info":
+                            st.info(f"{report.filename}: {report.message}")
+                        else:
+                            st.success(f"{report.filename}: {report.message}")
+
+        def _on_extract_progress(report) -> None:
+            progress_reports[report.filename] = report
+            _render_progress_reports()
+
         with col1.spinner("Extracting text from uploaded files..."):
-            extracted_text, reports = extract_text_from_uploads(uploaded_files)
+            extracted_text, reports = extract_text_from_uploads(
+                uploaded_files,
+                progress_callback=_on_extract_progress,
+            )
+        progress_box.empty()
         st.session_state["last_upload_signature"] = file_signature
         st.session_state["text_input"] = extracted_text
         st.session_state["upload_reports"] = reports
 
     if st.session_state.get("upload_reports"):
-        with col1.expander("Extraction status", expanded=False):
-            for report in st.session_state["upload_reports"]:
-                if report.ok:
-                    st.success(f"{report.filename}: {report.message}")
-                else:
-                    st.error(f"{report.filename}: {report.message}")
+        _render_extraction_status(st.session_state["upload_reports"], expanded=False)
 
 st_text = col1.text_area(
     label="Enter text", value="".join(demo_text), height=400, key="text_input"

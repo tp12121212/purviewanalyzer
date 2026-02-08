@@ -12,6 +12,8 @@ RUN apt-get update \
        ca-certificates \
        libgl1 \
        libglib2.0-0 \
+       aptitude \
+       htop \
     && TESSDATA_DIR="/usr/share/tesseract-ocr/5/tessdata" \
     && mkdir -p "${TESSDATA_DIR}" \
     && curl -fL -o "${TESSDATA_DIR}/ocrb.traineddata" \

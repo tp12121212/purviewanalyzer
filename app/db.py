@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+import os
+import shutil
 from pathlib import Path
 from typing import Generator
 
@@ -13,18 +16,48 @@ class Base(DeclarativeBase):
     pass
 
 
-def _ensure_sqlite_dir(database_url: str) -> None:
+logger = logging.getLogger("presidio-streamlit")
+
+
+def _sqlite_path_from_url(database_url: str) -> Path | None:
     if not database_url.startswith("sqlite:///"):
-        return
+        return None
     path = database_url.replace("sqlite:///", "", 1)
     if not path or path == ":memory:":
+        return None
+    return Path(path)
+
+
+def _ensure_sqlite_dir(database_url: str) -> None:
+    db_path = _sqlite_path_from_url(database_url)
+    if db_path is None:
         return
-    db_path = Path(path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
+
+
+def _copy_legacy_db_if_needed(database_url: str) -> None:
+    db_path = _sqlite_path_from_url(database_url)
+    if db_path is None:
+        return
+    if os.getenv("DATABASE_URL"):
+        return
+    if db_path.exists():
+        return
+
+    legacy_db_path = Path(__file__).resolve().parents[1] / "data" / "app.db"
+    if db_path.resolve() == legacy_db_path.resolve():
+        return
+    if not legacy_db_path.exists():
+        return
+
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(legacy_db_path, db_path)
+    logger.info("Copied legacy SQLite DB from %s to %s", legacy_db_path, db_path)
 
 
 _database_url = get_database_url()
 _ensure_sqlite_dir(_database_url)
+_copy_legacy_db_if_needed(_database_url)
 
 engine = create_engine(
     _database_url,

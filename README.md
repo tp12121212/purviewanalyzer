@@ -16,7 +16,10 @@ This app can import Presidio predefined recognizers into a local SQLite database
 
 ### Defaults
 
-- `DATABASE_URL`: `sqlite:///./data/app.db`
+- `DB_PATH`: auto-resolved SQLite file path
+  - Azure or writable `/mnt`: `/mnt/data/app.db`
+  - Local fallback: `./mnt/data/app.db` (resolved to absolute path at runtime)
+- `DATABASE_URL`: optional override (if set, takes precedence over `DB_PATH`)
 - `PREDEFINED_RECOGNIZERS_PATH`: `./predefined_recognizers`
 - `PURVIEW_PERSIST_ROOT`: `/mnt` (persistent volume mount for ML model caches)
 - `VERIFY_MNT_WRITABLE`: `1` (fail fast if persist root is not writable)
