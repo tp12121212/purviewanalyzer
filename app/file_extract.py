@@ -118,6 +118,10 @@ def _extract_7z(archive_path: Path, dest: Path, max_files: int, max_bytes: int) 
         names = zf.getnames()
         if len(names) > max_files:
             raise ValueError("Too many files in 7z")
+        for name in names:
+            name_path = Path(name)
+            if name_path.is_absolute() or ".." in name_path.parts:
+                raise ValueError("Unsafe path in 7z archive")
         zf.extractall(path=dest)
     _limit_extraction(dest, max_files, max_bytes)
 
@@ -452,6 +456,9 @@ def _extract_pdf(path: Path) -> str:
                     tp_quality, tp_text = _score_ocr_text(page_text_raw)
                     page_best_quality = tp_quality
                     page_best_text = tp_text
+                    if page_best_quality >= 0.75:
+                        ocr_text_parts.append(page_best_text)
+                        continue
             except Exception:
                 pass
 

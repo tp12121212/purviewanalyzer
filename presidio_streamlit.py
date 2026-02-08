@@ -53,6 +53,21 @@ logger = logging.getLogger("presidio-streamlit")
 
 init_model_storage()
 
+
+def _enforce_streamlit_auth() -> None:
+    token = os.getenv("STREAMLIT_AUTH_TOKEN")
+    if not token:
+        return
+    with st.sidebar:
+        st.markdown("### Authentication")
+        provided = st.text_input("Access token", type="password")
+    if provided != token:
+        st.error("Unauthorized")
+        st.stop()
+
+
+_enforce_streamlit_auth()
+
 from presidio_helpers import (  # noqa: E402
     get_supported_entities,
     analyze,

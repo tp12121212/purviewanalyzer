@@ -39,25 +39,39 @@ def list_entities(
     total = session.execute(select(func.count()).select_from(query.subquery())).scalar()
 
     offset = max(page - 1, 0) * page_size
-    items = session.execute(
-        query.order_by(Entity.name.asc()).offset(offset).limit(page_size)
-    ).scalars()
+    items = list(
+        session.execute(
+            query.order_by(Entity.name.asc()).offset(offset).limit(page_size)
+        ).scalars()
+    )
+    item_ids = [item.id for item in items]
 
-    pattern_counts = dict(
-        session.execute(
-            select(EntityPattern.entity_id, func.count()).group_by(EntityPattern.entity_id)
-        ).all()
-    )
-    context_counts = dict(
-        session.execute(
-            select(EntityContext.entity_id, func.count()).group_by(EntityContext.entity_id)
-        ).all()
-    )
-    metadata_counts = dict(
-        session.execute(
-            select(EntityMetadata.entity_id, func.count()).group_by(EntityMetadata.entity_id)
-        ).all()
-    )
+    if item_ids:
+        pattern_counts = dict(
+            session.execute(
+                select(EntityPattern.entity_id, func.count())
+                .where(EntityPattern.entity_id.in_(item_ids))
+                .group_by(EntityPattern.entity_id)
+            ).all()
+        )
+        context_counts = dict(
+            session.execute(
+                select(EntityContext.entity_id, func.count())
+                .where(EntityContext.entity_id.in_(item_ids))
+                .group_by(EntityContext.entity_id)
+            ).all()
+        )
+        metadata_counts = dict(
+            session.execute(
+                select(EntityMetadata.entity_id, func.count())
+                .where(EntityMetadata.entity_id.in_(item_ids))
+                .group_by(EntityMetadata.entity_id)
+            ).all()
+        )
+    else:
+        pattern_counts = {}
+        context_counts = {}
+        metadata_counts = {}
 
     results = []
     for item in items:

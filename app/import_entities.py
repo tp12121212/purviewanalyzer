@@ -7,6 +7,7 @@ import importlib.util
 import json
 import os
 import sys
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Optional
@@ -17,6 +18,7 @@ from app.config import get_predefined_recognizers_path
 from app.db import SessionLocal, init_db
 from app.models import Entity, EntityContext, EntityMetadata, EntityPattern
 
+logger = logging.getLogger("presidio-streamlit")
 
 @dataclass
 class PatternSpec:
@@ -371,7 +373,8 @@ def load_entity_specs(
                 specs.extend(parse_module_import(path, root))
             else:
                 specs.extend(parse_module_ast(path, root))
-        except Exception:
+        except Exception as exc:
+            logger.warning("Failed to import recognizer module %s: %s", path, exc)
             specs.extend(parse_module_ast(path, root))
     return specs
 
