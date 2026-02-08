@@ -5,6 +5,7 @@ import ast
 import hashlib
 import importlib.util
 import json
+import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -356,9 +357,17 @@ def load_entity_specs(
     root: Path, import_strategy: str = "auto"
 ) -> list[EntitySpec]:
     specs: list[EntitySpec] = []
+    allow_import_exec = os.getenv("ALLOW_UNSAFE_RECOGNIZER_IMPORTS", "0").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
     for path in discover_recognizer_files(root):
         try:
-            if import_strategy in {"auto", "import"}:
+            if import_strategy == "import" or (
+                import_strategy == "auto" and allow_import_exec
+            ):
                 specs.extend(parse_module_import(path, root))
             else:
                 specs.extend(parse_module_ast(path, root))

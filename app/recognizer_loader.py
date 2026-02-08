@@ -27,6 +27,12 @@ def _discover_country_specific_paths(root: Path) -> Iterable[Path]:
 
 
 def _load_module(path: Path, module_name: str):
+    if path.suffix != ".py":
+        raise ImportError(f"Unsupported module type for {path.name}")
+    if not path.exists() or not path.is_file():
+        raise ImportError(f"Missing module file {path}")
+    if path.is_symlink():
+        raise ImportError(f"Refusing to import symlinked module {path}")
     spec = importlib.util.spec_from_file_location(module_name, str(path))
     if not spec or not spec.loader:
         raise ImportError(f"Unable to load module {module_name}")
