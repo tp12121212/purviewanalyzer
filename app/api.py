@@ -14,8 +14,16 @@ app = FastAPI(title="Presidio Entities API")
 
 def _require_api_token(request: Request) -> None:
     token = os.getenv("API_AUTH_TOKEN")
-    if not token:
+    allow_anonymous = os.getenv("ALLOW_ANON_ACCESS", "0").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if not token and allow_anonymous:
         return
+    if not token and not allow_anonymous:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
     auth_header = request.headers.get("Authorization", "")
     header_token = ""
     if auth_header.lower().startswith("bearer "):

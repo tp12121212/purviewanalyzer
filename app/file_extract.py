@@ -48,6 +48,7 @@ MAX_IMAGE_PIXELS = int(os.getenv("MAX_IMAGE_PIXELS", str(6_000_000)))
 MIN_OCR_DIMENSION = int(os.getenv("MIN_OCR_DIMENSION", "24"))
 MAX_MESSAGE_ATTACHMENTS = int(os.getenv("MAX_MESSAGE_ATTACHMENTS", "100"))
 MAX_ATTACHMENT_BYTES = int(os.getenv("MAX_ATTACHMENT_BYTES", str(50 * 1024 * 1024)))
+MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(200 * 1024 * 1024)))
 
 
 SUPPORTED_EXTENSIONS = {
@@ -894,6 +895,24 @@ def extract_text_from_uploads(
                 filename=filename,
                 ok=False,
                 message="Unsupported file type",
+                status="error",
+            )
+            results.append(report)
+            if progress_callback:
+                progress_callback(report)
+            continue
+
+        file_size = getattr(uploaded, "size", None)
+        if file_size is None:
+            try:
+                file_size = len(uploaded.getbuffer())
+            except Exception:
+                file_size = None
+        if file_size is not None and file_size > MAX_UPLOAD_BYTES:
+            report = ExtractionResult(
+                filename=filename,
+                ok=False,
+                message=f"File too large (> {MAX_UPLOAD_BYTES} bytes)",
                 status="error",
             )
             results.append(report)
