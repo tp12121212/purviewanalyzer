@@ -890,7 +890,10 @@ def render_recognizers() -> None:
                                     "patterns": normalized_patterns,
                                     "context": context_words,
                                     "allow_list": allow_list,
-                                    "deny_list": deny_list,
+                                    "deny_list": _dedupe_keep_order(
+                                        list(st.session_state.get(match_words_seed_key, []))
+                                        + list(st.session_state.get(imported_match_words_key, []))
+                                    ),
                                 }
                             ]
                         }
