@@ -333,6 +333,9 @@ def _parse_match_words_upload(uploaded_file) -> list[str]:
 
 
 def _reset_new_recognizer_form_state() -> None:
+    st.session_state["recognizer_form_new_nonce"] = (
+        int(st.session_state.get("recognizer_form_new_nonce", 0)) + 1
+    )
     keys_to_clear = [
         "entity_type_input_new",
         "pattern_editor_new",
@@ -620,7 +623,12 @@ def render_recognizers() -> None:
             pattern_defaults = [{"name": "", "regex": "", "score": form_defaults["base_score"]}]
 
         st.subheader("Create / Update")
-        entity_input_key = f"entity_type_input_{selected_id or 'new'}"
+        form_scope = (
+            str(selected_id_for_save)
+            if selected_id_for_save
+            else f"new_{int(st.session_state.get('recognizer_form_new_nonce', 0))}"
+        )
+        entity_input_key = f"entity_type_input_{form_scope}"
         if entity_input_key not in st.session_state:
             st.session_state[entity_input_key] = form_defaults["entity_type"]
         with st.form("recognizer_form"):
@@ -678,7 +686,7 @@ def render_recognizers() -> None:
                 pattern_defaults,
                 num_rows="dynamic",
                 use_container_width=True,
-                key=f"pattern_editor_{selected_id or 'new'}",
+                key=f"pattern_editor_{form_scope}",
             )
 
             st.caption("Context words")
@@ -687,7 +695,7 @@ def render_recognizers() -> None:
                 label="Context",
                 text="Example: email, contact (press enter to add more)",
                 value=form_defaults["context"],
-                key=f"context_tags_{selected_id or 'new'}",
+                key=f"context_tags_{form_scope}",
             )
 
             st.caption("Allow list")
@@ -695,18 +703,18 @@ def render_recognizers() -> None:
                 label="Allow list",
                 text="Example: noreply@acme.com (press enter to add more)",
                 value=form_defaults["allow_list"],
-                key=f"allow_tags_{selected_id or 'new'}",
+                key=f"allow_tags_{form_scope}",
             )
             st.caption("Note: allow list is stored in DB but not applied by PatternRecognizer in this Presidio version.")
 
             st.caption("Match words (primary)")
-            match_words_seed_key = f"match_words_seed_{selected_id or 'new'}"
+            match_words_seed_key = f"match_words_seed_{form_scope}"
             if match_words_seed_key not in st.session_state:
                 st.session_state[match_words_seed_key] = list(form_defaults["deny_list"])
             match_words_upload = st.file_uploader(
                 "Import Match words from file (.csv, .txt)",
                 type=["csv", "txt"],
-                key=f"match_words_upload_{selected_id or 'new'}",
+                key=f"match_words_upload_{form_scope}",
                 help="CSV: all non-empty cells are imported. TXT: one value per line (or comma-separated).",
             )
             if st.form_submit_button("Load words from file", type="secondary"):
@@ -728,7 +736,7 @@ def render_recognizers() -> None:
                 label="Match words",
                 text="Example: acct number, bsb, medicare (press enter to add more)",
                 value=st.session_state[match_words_seed_key],
-                key=f"deny_tags_{selected_id or 'new'}",
+                key=f"deny_tags_{form_scope}",
             )
             st.session_state[match_words_seed_key] = deny_list
             st.caption("Exact word/phrase matches. You can use this without regex patterns.")
