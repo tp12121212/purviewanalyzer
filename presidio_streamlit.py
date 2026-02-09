@@ -332,6 +332,20 @@ def _parse_match_words_upload(uploaded_file) -> list[str]:
     return _dedupe_keep_order(tokens)
 
 
+def _reset_new_recognizer_form_state() -> None:
+    keys_to_clear = [
+        "entity_type_input_new",
+        "pattern_editor_new",
+        "context_tags_new",
+        "allow_tags_new",
+        "deny_tags_new",
+        "match_words_seed_new",
+        "match_words_upload_new",
+    ]
+    for key in keys_to_clear:
+        st.session_state.pop(key, None)
+
+
 def _get_test_analyzer():
     from presidio_analyzer import AnalyzerEngine, RecognizerRegistry
     from presidio_nlp_engine_config import create_nlp_engine_with_spacy
@@ -523,6 +537,8 @@ def render_recognizers() -> None:
             with mode_col1:
                 if st.button("Create new recognizer"):
                     st.session_state[mode_key] = "new"
+                    _reset_new_recognizer_form_state()
+                    st.rerun()
             with mode_col2:
                 if st.button("Load selected for edit"):
                     st.session_state[mode_key] = "edit"
