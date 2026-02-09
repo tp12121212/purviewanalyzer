@@ -1,8 +1,10 @@
 """Streamlit app for Purview Analyser."""
+import csv
 import json
 import logging
 import os
 import traceback
+from io import StringIO
 from pathlib import Path
 
 import dotenv
@@ -290,6 +292,44 @@ def _normalize_pattern_rows(rows: list[dict], base_score: float) -> list[dict]:
             }
         )
     return cleaned
+
+
+def _dedupe_keep_order(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for item in items:
+        normalized = item.strip()
+        if not normalized:
+            continue
+        key = normalized.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        ordered.append(normalized)
+    return ordered
+
+
+def _parse_match_words_upload(uploaded_file) -> list[str]:
+    raw = uploaded_file.getvalue()
+    text = raw.decode("utf-8", errors="replace")
+    ext = Path(uploaded_file.name or "").suffix.lower()
+
+    tokens: list[str] = []
+    if ext == ".csv":
+        reader = csv.reader(StringIO(text))
+        for row in reader:
+            for cell in row:
+                value = (cell or "").strip()
+                if value:
+                    tokens.append(value)
+    else:
+        # txt: support one entry per line and comma-separated lists.
+        for line in text.splitlines():
+            for part in line.split(","):
+                value = part.strip()
+                if value:
+                    tokens.append(value)
+    return _dedupe_keep_order(tokens)
 
 
 def _get_test_analyzer():
@@ -644,12 +684,37 @@ def render_recognizers() -> None:
             st.caption("Note: allow list is stored in DB but not applied by PatternRecognizer in this Presidio version.")
 
             st.caption("Match words (primary)")
+            match_words_seed_key = f"match_words_seed_{selected_id or 'new'}"
+            if match_words_seed_key not in st.session_state:
+                st.session_state[match_words_seed_key] = list(form_defaults["deny_list"])
+            match_words_upload = st.file_uploader(
+                "Import Match words from file (.csv, .txt)",
+                type=["csv", "txt"],
+                key=f"match_words_upload_{selected_id or 'new'}",
+                help="CSV: all non-empty cells are imported. TXT: one value per line (or comma-separated).",
+            )
+            if st.form_submit_button("Load words from file", type="secondary"):
+                if not match_words_upload:
+                    st.warning("Choose a CSV or TXT file first.")
+                else:
+                    imported_words = _parse_match_words_upload(match_words_upload)
+                    if not imported_words:
+                        st.warning("No words found in uploaded file.")
+                    else:
+                        existing_words = st.session_state.get(match_words_seed_key, [])
+                        st.session_state[match_words_seed_key] = _dedupe_keep_order(
+                            list(existing_words) + imported_words
+                        )
+                        st.success(
+                            f"Loaded {len(imported_words)} word(s). Match words list updated."
+                        )
             deny_list = st_tags(
                 label="Match words",
                 text="Example: acct number, bsb, medicare (press enter to add more)",
-                value=form_defaults["deny_list"],
+                value=st.session_state[match_words_seed_key],
                 key=f"deny_tags_{selected_id or 'new'}",
             )
+            st.session_state[match_words_seed_key] = deny_list
             st.caption("Exact word/phrase matches. You can use this without regex patterns.")
 
             st.caption("Storage location")
