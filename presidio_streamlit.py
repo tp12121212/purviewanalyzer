@@ -282,7 +282,8 @@ def _normalize_pattern_rows(rows: list[dict], base_score: float) -> list[dict]:
         name = str(row.get("name") or "").strip()
         regex = str(row.get("regex") or "").strip()
         score = row.get("score")
-        if not name and not regex and (score is None or score == ""):
+        # Ignore placeholder rows with no actual regex/name, even if score has a default value.
+        if not name and not regex:
             continue
         cleaned.append(
             {
