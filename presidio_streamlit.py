@@ -230,6 +230,12 @@ def render_entities() -> None:
     else:
         st.info("No context terms available.")
 
+    st.subheader("Match words")
+    if detail.get("match_words"):
+        st.write(", ".join(detail["match_words"]))
+    else:
+        st.info("No match words available.")
+
     if detail.get("metadata"):
         st.subheader("Metadata")
         st.json(detail["metadata"])

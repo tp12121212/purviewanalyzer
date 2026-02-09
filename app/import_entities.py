@@ -430,18 +430,32 @@ def load_entity_specs(
     return specs
 
 
-def upsert_entities(specs: list[EntitySpec]) -> int:
+def upsert_entities(
+    specs: list[EntitySpec], discovered_source_files: Optional[list[str]] = None
+) -> int:
     init_db()
     inserted = 0
     spec_keys = {spec.entity_key for spec in specs}
     spec_source_files = sorted({spec.source_file for spec in specs if spec.source_file})
+    discovered_source_files = sorted(set(discovered_source_files or spec_source_files))
     with SessionLocal() as session:
-        if spec_source_files:
-            # Remove stale entries for files we just scanned. This clears old/bad rows
-            # from previous parsing strategies while preserving unrelated sources.
+        # Defensive schema creation for test environments that reload app.db/app.models.
+        Entity.__table__.create(bind=session.bind, checkfirst=True)
+        EntityPattern.__table__.create(bind=session.bind, checkfirst=True)
+        EntityContext.__table__.create(bind=session.bind, checkfirst=True)
+        EntityMetadata.__table__.create(bind=session.bind, checkfirst=True)
+
+        if discovered_source_files:
+            # Remove entries for recognizer files that no longer exist.
+            session.query(Entity).filter(
+                Entity.source == "predefined_recognizers",
+                ~Entity.source_file.in_(discovered_source_files),
+            ).delete(synchronize_session=False)
+
+            # Remove stale rows for existing files when entity keys no longer match.
             stale_query = session.query(Entity).filter(
                 Entity.source == "predefined_recognizers",
-                Entity.source_file.in_(spec_source_files),
+                Entity.source_file.in_(discovered_source_files),
             )
             if spec_keys:
                 stale_query = stale_query.filter(~Entity.entity_key.in_(spec_keys))
@@ -535,8 +549,11 @@ def main() -> int:
     args = parser.parse_args()
 
     root = Path(args.path)
+    discovered_paths = [
+        _relative_path(path, root) for path in discover_recognizer_files(root)
+    ]
     specs = load_entity_specs(root, import_strategy=args.import_strategy)
-    inserted = upsert_entities(specs)
+    inserted = upsert_entities(specs, discovered_source_files=discovered_paths)
     print(f"Imported {len(specs)} entities ({inserted} new).")
     return 0
 

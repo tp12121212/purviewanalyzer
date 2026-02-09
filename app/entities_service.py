@@ -1,11 +1,31 @@
 from __future__ import annotations
 
+import json
 from typing import Optional
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import Entity, EntityContext, EntityMetadata, EntityPattern
+from app.models import Entity, EntityContext, EntityMetadata, EntityPattern, Recognizer
+
+
+def _decode_metadata_value(value: str):
+    try:
+        return json.loads(value)
+    except Exception:
+        return value
+
+
+def _parse_json_list(value: str | None) -> list[str]:
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+    except Exception:
+        return []
+    if isinstance(parsed, list):
+        return [item for item in parsed if isinstance(item, str)]
+    return []
 
 
 def list_entities(
@@ -78,8 +98,6 @@ def list_entities(
         patterns_count = pattern_counts.get(item.id, 0)
         context_count = context_counts.get(item.id, 0)
         metadata_count = metadata_counts.get(item.id, 0)
-        if patterns_count == 0 and context_count == 0:
-            continue
         results.append(
             {
                 "id": item.id,
@@ -120,6 +138,20 @@ def get_entity_detail(session: Session, entity_id: int) -> Optional[dict]:
             EntityMetadata.entity_id == entity_id
         )
     ).all()
+    metadata = {key: _decode_metadata_value(value) for key, value in metadata_items}
+
+    class_name = metadata.get("class_name")
+    recognizer_query = select(Recognizer).where(
+        Recognizer.module_path == entity.source_file,
+        Recognizer.entity_type == entity.entity_type,
+        func.coalesce(Recognizer.language, "") == (entity.language or ""),
+    )
+    if isinstance(class_name, str) and class_name:
+        recognizer_query = recognizer_query.where(Recognizer.class_name == class_name)
+    match_words: list[str] = []
+    recognizer = session.execute(recognizer_query).scalar_one_or_none()
+    if recognizer:
+        match_words = _parse_json_list(recognizer.deny_list_json)
 
     return {
         "id": entity.id,
@@ -143,5 +175,6 @@ def get_entity_detail(session: Session, entity_id: int) -> Optional[dict]:
             for pattern in patterns
         ],
         "context": list(contexts),
-        "metadata": {key: value for key, value in metadata_items},
+        "match_words": match_words,
+        "metadata": metadata,
     }
