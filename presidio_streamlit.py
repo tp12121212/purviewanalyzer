@@ -333,6 +333,16 @@ def _parse_match_words_upload(uploaded_file) -> list[str]:
     return _dedupe_keep_order(tokens)
 
 
+def _parse_match_words_text(text: str) -> list[str]:
+    tokens: list[str] = []
+    for line in text.splitlines():
+        for part in line.split(","):
+            value = part.strip()
+            if value:
+                tokens.append(value)
+    return _dedupe_keep_order(tokens)
+
+
 def _reset_new_recognizer_form_state() -> None:
     st.session_state["recognizer_form_new_nonce"] = (
         int(st.session_state.get("recognizer_form_new_nonce", 0)) + 1
@@ -343,6 +353,7 @@ def _reset_new_recognizer_form_state() -> None:
         "context_tags_new",
         "allow_tags_new",
         "deny_tags_new",
+        "match_words_text_new",
         "match_words_seed_new",
         "imported_match_words_new",
         "match_words_upload_new",
@@ -712,12 +723,17 @@ def render_recognizers() -> None:
             st.caption("Match words (primary)")
             match_words_seed_key = f"match_words_seed_{form_scope}"
             imported_match_words_key = f"imported_match_words_{form_scope}"
+            match_words_text_key = f"match_words_text_{form_scope}"
             if imported_match_words_key not in st.session_state:
                 st.session_state[imported_match_words_key] = []
             if match_words_seed_key not in st.session_state:
                 st.session_state[match_words_seed_key] = _dedupe_keep_order(
                     list(form_defaults["deny_list"])
                     + list(st.session_state.get(imported_match_words_key, []))
+                )
+            if match_words_text_key not in st.session_state:
+                st.session_state[match_words_text_key] = "\n".join(
+                    st.session_state[match_words_seed_key]
                 )
             match_words_upload = st.file_uploader(
                 "Import Match words from file (.csv, .txt)",
@@ -740,15 +756,35 @@ def render_recognizers() -> None:
                         st.session_state[match_words_seed_key] = _dedupe_keep_order(
                             list(st.session_state[match_words_seed_key]) + imported_words
                         )
+                        st.session_state[match_words_text_key] = "\n".join(
+                            st.session_state[match_words_seed_key]
+                        )
                         st.success(
                             f"Loaded {len(imported_words)} word(s). Match words list updated."
                         )
-            deny_list = st_tags(
-                label="Match words",
-                text="Example: acct number, bsb, medicare (press enter to add more)",
-                value=st.session_state[match_words_seed_key],
-                key=f"deny_tags_{form_scope}",
-            )
+            large_match_word_threshold = 1000
+            if len(st.session_state[match_words_seed_key]) > large_match_word_threshold:
+                st.caption(
+                    "Large list mode enabled (more than 1,000 words). "
+                    "Edit as one word/phrase per line."
+                )
+                match_words_text = st.text_area(
+                    "Match words (bulk edit)",
+                    value=st.session_state[match_words_text_key],
+                    height=220,
+                    key=match_words_text_key,
+                )
+                match_words = _parse_match_words_text(match_words_text)
+            else:
+                match_words = st_tags(
+                    label="Match words",
+                    text="Example: acct number, bsb, medicare (press enter to add more)",
+                    value=st.session_state[match_words_seed_key],
+                    key=f"deny_tags_{form_scope}",
+                )
+                st.session_state[match_words_text_key] = "\n".join(match_words)
+            st.session_state[match_words_seed_key] = _dedupe_keep_order(match_words)
+            st.caption(f"Current match words count: {len(st.session_state[match_words_seed_key])}")
             st.caption("Exact word/phrase matches. You can use this without regex patterns.")
 
             st.caption("Storage location")
@@ -813,7 +849,7 @@ def render_recognizers() -> None:
                         context=context_words,
                         allow_list=allow_list,
                         deny_list=_dedupe_keep_order(
-                            list(deny_list)
+                            list(st.session_state.get(match_words_seed_key, []))
                             + list(st.session_state.get(imported_match_words_key, []))
                         ),
                         storage_subpath=storage_subpath or None,
