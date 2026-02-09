@@ -82,8 +82,8 @@ Key extraction limits (all env-overridable):
 
 The app uses SQLite by default and resolves DB path as:
 
-- Azure or writable `/mnt`: `/mnt/app.db`
-- Otherwise local: `./mnt/app.db` (resolved to absolute path at runtime)
+- Azure or writable `/mnt`: `/mnt/data/app.db`
+- Otherwise local: `./mnt/data/app.db` (resolved to absolute path at runtime)
 
 Configuration:
 
@@ -97,6 +97,9 @@ Startup DB behavior:
 - Creates parent directory for SQLite path automatically.
 - Applies SQLite pragmas (`WAL`, busy timeout).
 - Retries table initialization on transient `database is locked`.
+- Migrates from legacy flat mount DB path if present:
+  - `/mnt/app.db` -> `/mnt/data/app.db`
+  - `./mnt/app.db` -> `./mnt/data/app.db`
 
 ## Model cache persistence
 
