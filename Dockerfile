@@ -2,7 +2,10 @@ FROM python:3.11-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    STARTUP_ENTITY_SYNC=1 \
+    ENTITY_SYNC_STRICT=1 \
+    ENTITY_SYNC_IMPORT_STRATEGY=ast
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -29,4 +32,4 @@ COPY . /app
 
 EXPOSE 8501
 
-CMD ["streamlit", "run", "presidio_streamlit.py", "--server.port=8501", "--server.address=0.0.0.0"]
+CMD ["/bin/sh", "-c", "python -m app.startup_entity_sync && exec streamlit run presidio_streamlit.py --server.port=8501 --server.address=0.0.0.0"]

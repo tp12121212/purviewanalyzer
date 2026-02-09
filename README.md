@@ -97,6 +97,15 @@ Startup DB behavior:
 - Creates parent directory for SQLite path automatically.
 - Applies SQLite pragmas (`WAL`, busy timeout).
 - Retries table initialization on transient `database is locked`.
+- In container startup, entities are synchronized from `predefined_recognizers` before Streamlit starts.
+  This keeps Azure DB content aligned with shipped recognizer `.py` files without committing runtime DB files.
+
+Container startup entity sync controls:
+
+- `STARTUP_ENTITY_SYNC` default `1` (enable startup sync)
+- `ENTITY_SYNC_IMPORT_STRATEGY` default `ast` (safe static parse; avoids executing recognizer code)
+- `ENTITY_SYNC_STRICT` default `1` (fail container start if sync fails)
+- `ENTITY_SYNC_LOCK_TIMEOUT_SECONDS` default `60` (startup lock wait; protects concurrent replicas)
 
 ## Model cache persistence
 
