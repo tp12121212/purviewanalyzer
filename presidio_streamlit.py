@@ -616,8 +616,8 @@ def render_recognizers() -> None:
                 help="Optional fallback confidence score. Example: 0.5",
             )
 
-            st.caption("Patterns :red[*]")
-            st.caption("Required. At least one pattern row must have a regex. Example: name=TFN (Medium), regex=\\b\\d{3}\\s\\d{3}\\s\\d{3}\\b, score=0.1")
+            st.caption("Regex patterns (optional)")
+            st.caption("Use this for regex-based matching. Leave all rows blank if using Match words only.")
             pattern_rows = st.data_editor(
                 pattern_defaults,
                 num_rows="dynamic",
@@ -643,13 +643,14 @@ def render_recognizers() -> None:
             )
             st.caption("Note: allow list is stored in DB but not applied by PatternRecognizer in this Presidio version.")
 
-            st.caption("Deny list")
+            st.caption("Match words (primary)")
             deny_list = st_tags(
-                label="Deny list",
-                text="Example: jane.doe@acme.com (press enter to add more)",
+                label="Match words",
+                text="Example: acct number, bsb, medicare (press enter to add more)",
                 value=form_defaults["deny_list"],
                 key=f"deny_tags_{selected_id or 'new'}",
             )
+            st.caption("Exact word/phrase matches. You can use this without regex patterns.")
 
             st.caption("Storage location")
             storage_root = get_predefined_recognizers_path()

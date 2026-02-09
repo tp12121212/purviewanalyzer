@@ -83,13 +83,15 @@ def validate_patterns(
     if not patterns:
         if allow_empty:
             return
-        raise RecognizerValidationError("At least one regex pattern is required.")
+        raise RecognizerValidationError(
+            "Provide at least one regex pattern, or add one or more match words."
+        )
 
     for idx, pattern in enumerate(patterns):
         regex = pattern.get("regex")
         if not regex:
             raise RecognizerValidationError(
-                f"Pattern {idx + 1} is missing a regex value."
+                f"Pattern {idx + 1} is missing a regex value. Remove this row or provide a regex."
             )
         try:
             re.compile(regex)
