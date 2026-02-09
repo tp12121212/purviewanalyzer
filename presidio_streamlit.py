@@ -344,6 +344,7 @@ def _reset_new_recognizer_form_state() -> None:
         "allow_tags_new",
         "deny_tags_new",
         "match_words_seed_new",
+        "imported_match_words_new",
         "match_words_upload_new",
     ]
     for key in keys_to_clear:
@@ -710,8 +711,14 @@ def render_recognizers() -> None:
 
             st.caption("Match words (primary)")
             match_words_seed_key = f"match_words_seed_{form_scope}"
+            imported_match_words_key = f"imported_match_words_{form_scope}"
+            if imported_match_words_key not in st.session_state:
+                st.session_state[imported_match_words_key] = []
             if match_words_seed_key not in st.session_state:
-                st.session_state[match_words_seed_key] = list(form_defaults["deny_list"])
+                st.session_state[match_words_seed_key] = _dedupe_keep_order(
+                    list(form_defaults["deny_list"])
+                    + list(st.session_state.get(imported_match_words_key, []))
+                )
             match_words_upload = st.file_uploader(
                 "Import Match words from file (.csv, .txt)",
                 type=["csv", "txt"],
@@ -726,9 +733,12 @@ def render_recognizers() -> None:
                     if not imported_words:
                         st.warning("No words found in uploaded file.")
                     else:
-                        existing_words = st.session_state.get(match_words_seed_key, [])
+                        existing_imported = st.session_state.get(imported_match_words_key, [])
+                        st.session_state[imported_match_words_key] = _dedupe_keep_order(
+                            list(existing_imported) + imported_words
+                        )
                         st.session_state[match_words_seed_key] = _dedupe_keep_order(
-                            list(existing_words) + imported_words
+                            list(st.session_state[match_words_seed_key]) + imported_words
                         )
                         st.success(
                             f"Loaded {len(imported_words)} word(s). Match words list updated."
@@ -739,7 +749,6 @@ def render_recognizers() -> None:
                 value=st.session_state[match_words_seed_key],
                 key=f"deny_tags_{form_scope}",
             )
-            st.session_state[match_words_seed_key] = deny_list
             st.caption("Exact word/phrase matches. You can use this without regex patterns.")
 
             st.caption("Storage location")
@@ -803,7 +812,10 @@ def render_recognizers() -> None:
                         patterns=normalized_patterns,
                         context=context_words,
                         allow_list=allow_list,
-                        deny_list=deny_list,
+                        deny_list=_dedupe_keep_order(
+                            list(deny_list)
+                            + list(st.session_state.get(imported_match_words_key, []))
+                        ),
                         storage_subpath=storage_subpath or None,
                         version=version or None,
                     )
