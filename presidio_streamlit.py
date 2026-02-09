@@ -231,8 +231,23 @@ def render_entities() -> None:
         st.info("No context terms available.")
 
     st.subheader("Match words")
-    if detail.get("match_words"):
-        st.write(", ".join(detail["match_words"]))
+    match_words = detail.get("match_words") or []
+    if match_words:
+        st.caption(f"{len(match_words)} match words")
+        preview_limit = 20
+        preview_words = match_words[:preview_limit]
+        preview = ", ".join(preview_words)
+        if len(match_words) > preview_limit:
+            preview = f"{preview}, ..."
+        st.write(preview)
+        with st.expander(f"Show all match words ({len(match_words)})", expanded=False):
+            st.text_area(
+                "All match words",
+                value="\n".join(match_words),
+                height=240,
+                disabled=True,
+                key=f"entity_match_words_{detail['id']}",
+            )
     else:
         st.info("No match words available.")
 
