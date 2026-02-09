@@ -299,7 +299,7 @@ def _dedupe_keep_order(items: list[str]) -> list[str]:
     seen: set[str] = set()
     ordered: list[str] = []
     for item in items:
-        normalized = item.strip()
+        normalized = item.replace("\ufeff", "").strip()
         if not normalized:
             continue
         key = normalized.lower()
