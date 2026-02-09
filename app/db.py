@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import os
-import shutil
 import threading
 import time
 from pathlib import Path
@@ -38,33 +37,8 @@ def _ensure_sqlite_dir(database_url: str) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
 
-def _migrate_flat_mnt_db_if_needed(database_url: str) -> None:
-    db_path = _sqlite_path_from_url(database_url)
-    if db_path is None:
-        return
-    if os.getenv("DATABASE_URL"):
-        return
-
-    if db_path.name != "app.db" or db_path.parent.name != "data":
-        return
-
-    legacy_path = db_path.parent.parent / "app.db"
-    if not legacy_path.exists() or legacy_path.resolve() == db_path.resolve():
-        return
-
-    target_exists_with_data = db_path.exists() and db_path.stat().st_size > 0
-    source_has_data = legacy_path.stat().st_size > 0
-    if target_exists_with_data or not source_has_data:
-        return
-
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(legacy_path, db_path)
-    logger.info("Migrated SQLite DB from legacy path %s to %s", legacy_path, db_path)
-
-
 _database_url = get_database_url()
 _ensure_sqlite_dir(_database_url)
-_migrate_flat_mnt_db_if_needed(_database_url)
 
 engine = create_engine(
     _database_url,

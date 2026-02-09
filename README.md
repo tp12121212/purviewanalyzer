@@ -97,9 +97,6 @@ Startup DB behavior:
 - Creates parent directory for SQLite path automatically.
 - Applies SQLite pragmas (`WAL`, busy timeout).
 - Retries table initialization on transient `database is locked`.
-- Migrates from legacy flat mount DB path if present:
-  - `/mnt/app.db` -> `/mnt/data/app.db`
-  - `./mnt/app.db` -> `./mnt/data/app.db`
 
 ## Model cache persistence
 
