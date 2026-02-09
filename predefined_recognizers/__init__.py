@@ -7,11 +7,13 @@ from presidio_analyzer.predefined_recognizers.nlp_engine_recognizers.transformer
 
 from .country_specific.australia.au_abn_recognizer import AuAbnRecognizer
 from .country_specific.australia.au_acn_recognizer import AuAcnRecognizer
-from .country_specific.australia.au_bsb_westpac_bank import AuWestpacBsbRecognizer
-from .country_specific.australia.au_medicare_recognizer import AuMedicareRecognizer
-from .country_specific.australia.au_tfn_recognizer import AuTfnRecognizer
+from .country_specific.australia.au_bsb_cba_recognizer import AuBsbCbaRecognizrRecognizer
+from .country_specific.australia.au_bsb_nab_recognizer import AuBsbNabRecognizrRecognizer
 from .country_specific.australia.au_bsb_stg_recognizer import AuBsbStgRecognizer
+from .country_specific.australia.au_bsb_wbc_recognizer import AuBsbWbcRecognizrRecognizer
+from .country_specific.australia.au_medicare_recognizer import AuMedicareRecognizer
 from .country_specific.australia.au_passport_recognizer import AuPassportRecognizer
+from .country_specific.australia.au_tfn_recognizer import AuTfnRecognizer
 
 # Finland recognizers
 from .country_specific.finland.fi_personal_identity_code_recognizer import (
@@ -145,7 +147,6 @@ __all__ = [
     "AuAcnRecognizer",
     "AuTfnRecognizer",
     "AuMedicareRecognizer",
-    "AuWestpacBsbRecognizer",
     "TransformersRecognizer",
     "ItDriverLicenseRecognizer",
     "ItFiscalCodeRecognizer",
@@ -178,4 +179,7 @@ __all__ = [
     "AubsbstgeorgerecognizerAu_Bsb_StgRecognizer",
     "AuBsbStgRecognizer",
     "AuPassportRecognizer",
+    "AuBsbNabRecognizrRecognizer",
+    "AuBsbCbaRecognizrRecognizer",
+    "AuBsbWbcRecognizrRecognizer",
 ]
